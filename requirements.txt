@@ -1,0 +1,5 @@
+asyncpg
+aiogram
+APScheduler
+python-decouple
+sqlalchemy
