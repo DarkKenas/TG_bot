@@ -3,14 +3,18 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from decouple import config
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from config import get_settings
 from db_handler.db_class import PostgresHandler
 
-pg_db = PostgresHandler(config("PG_LINK"))
-scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
-default_service_user_id = int(config("DEFAULT_SERVICE_USER_ID"))
+# Загружаем настройки (валидация происходит здесь!)
+settings = get_settings()
+
+# Используем настройки
+default_service_user_id = settings.default_service_user_id
+pg_db = PostgresHandler(settings.pg_link)  # URL уже с +asyncpg
+scheduler = AsyncIOScheduler(timezone=settings.timezone)
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -18,6 +22,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 bot = Bot(
-    token=config("TOKEN"), default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    token=settings.bot_token,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML),
 )
 dp = Dispatcher(storage=MemoryStorage())

@@ -28,3 +28,14 @@ class AdminStates(StatesGroup):
 
     waiting_for_delete_user_num = State()
     waiting_for_collector_user_num = State()
+
+class RoleStates(StatesGroup):
+    """Состояния назначения ролей"""
+    
+    waiting_for_admin_phrase = State()
+    waiting_for_service_phrase = State()
+
+class ServiceStates(StatesGroup):
+    """Состояния для сервис пользователя"""
+    
+    waiting_for_delete_admin_num = State()

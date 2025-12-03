@@ -77,7 +77,7 @@ class RegistrationMiddleware(BaseMiddleware):
         if user:
             # Получаем объекты admin и collector
             try:
-                admin = await pg_db.get_administrator()
+                admin = await pg_db.get_administrator(user_id)
             except RecordNotFound:
                 admin = None
 
@@ -100,9 +100,9 @@ class RegistrationMiddleware(BaseMiddleware):
                 await event.bot.send_message(
                     event.from_user.id,
                     "Вы уже зарегистрированы 😊",
-                    reply_markup=await get_main_menu_keyboard(
-                        is_admin=admin.user_id == user_id,
-                        is_collector=collector.user_id == user_id,
+                    reply_markup = await get_main_menu_keyboard(
+                        is_admin = True if admin else False,
+                        is_collector = True if collector else False,
                     ),
                 )
                 return

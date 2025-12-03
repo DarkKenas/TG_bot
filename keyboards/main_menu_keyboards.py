@@ -4,7 +4,6 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
 )
-from create_bot import default_service_user_id
 
 BUTTON_MY_WISHES = "🎯 Мой WishList"
 BUTTON_ADD_WISH = "➕ Добавить желание"
@@ -36,11 +35,11 @@ async def get_main_menu_keyboard(
     ]
 
     # Добавляем кнопку админ-панели для админов
-    if is_admin is not None:
+    if is_admin:
         keyboard.append([KeyboardButton(text=BUTTON_ADMIN_PANEL)])
 
     # Добавляем кнопку панели коллектора для коллекторов
-    if is_collector is not None:
+    if is_collector:
         keyboard.append([KeyboardButton(text=BUTTON_COLLECTOR_PANEL)])
 
     return ReplyKeyboardMarkup(
@@ -52,14 +51,14 @@ async def get_main_menu_keyboard(
     )
 
 
-async def get_service_chat_keyboard():
+async def get_service_chat_keyboard(service_user_id: int):
     """Кнопка для связи с поддержкой"""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
                     text="💬 Написать",
-                    url=f"https://web.telegram.org/a/#{default_service_user_id}",
+                    url=f"https://web.telegram.org/a/#{service_user_id}",
                 )
             ]
         ]

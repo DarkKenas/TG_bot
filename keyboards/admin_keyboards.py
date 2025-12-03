@@ -24,7 +24,7 @@ def get_admin_main_keyboard() -> InlineKeyboardMarkup:
 
 
 def get_confirm_action_keyboard(
-    action_type: str, target_id: int
+    action_type: str, target_id: int, role: str = ""
 ) -> InlineKeyboardMarkup:
     """Клавиатура подтверждения действия"""
     return InlineKeyboardMarkup(
@@ -32,7 +32,7 @@ def get_confirm_action_keyboard(
             [
                 InlineKeyboardButton(
                     text="✅ Подтвердить",
-                    callback_data=f"confirm_{action_type}:{target_id}",
+                    callback_data=f"{role}confirm_{action_type}:{target_id}",
                 ),
                 InlineKeyboardButton(
                     text="❌ Отмена", callback_data="cancel"

@@ -39,7 +39,7 @@ async def process_wish_text(message: Message, state: FSMContext):
         await handle_wish_confirmation(message, state)
     else:
         await message.answer(
-            "Напишите ссылку на подарок ✏️:\n\n"
+            "Введите ссылку на подарок ✏️:\n\n"
             "P.s. Если таковой нет, то нажмите 'Нет URL 🔗'",
             reply_markup=get_url_keyboard(),
         )

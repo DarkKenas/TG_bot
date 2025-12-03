@@ -1,1 +1,1 @@
-from my_exceptions import RecordNotFound, RecordExist, UserIdExist, CollectorUniquenessError
+from .my_exceptions import RecordNotFound, RecordExist, UserIdExist, CollectorUniquenessError

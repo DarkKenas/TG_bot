@@ -22,7 +22,6 @@ from handlers.services.service_collector import (
 )
 from aiogram.fsm.context import FSMContext
 import logging
-from exceptions.my_exceptions import StateDataError
 
 collector_router = Router()
 logger = logging.getLogger(__name__)

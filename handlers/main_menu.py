@@ -96,10 +96,14 @@ async def add_wish_from_menu(message: Message, state: FSMContext):
 @main_menu_router.message(F.text == BUTTON_SERVICE_CHAT)
 async def show_support(message: Message):
     """Показать контакты тех. поддержки"""
-    await message.answer(
-        "Если у вас возникли вопросы ⚠️❔, \nпожалуйста свяжитесь с Александром 🦸‍♂️:",
-        reply_markup=await get_service_chat_keyboard(),
-    )
+    try:
+        service_user = await pg_db.get_service_user()
+        await message.answer(
+            "Если у вас возникли вопросы ⚠️❔, \nпожалуйста свяжитесь с сервисным специалистом 🦸‍♂️:",
+            reply_markup=await get_service_chat_keyboard(service_user.user_id),
+        )
+    except Exception as e:
+        await message.answer("Ошибка получения сервисного чата 😵")
 
 
 @main_menu_router.message(F.text == BUTTON_CANCEL)

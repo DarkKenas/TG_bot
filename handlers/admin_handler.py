@@ -10,12 +10,11 @@ from keyboards.admin_keyboards import (
     SET_ACTIVE_COLLECTOR,
 )
 from keyboards.collector_keyboards import get_collector_create_keyboard
-from states.user_states import AdminStates, CollectorStates
-from db_handler.models import Administrator, Collector
+from states.user_states import AdminStates
+from db_handler.models import Collector
 from exceptions.my_exceptions import RecordNotFound, StateDataError
+from .services.service_user_list import get_user_dict_from_state, get_user_id_by_num
 import logging
-from typing import Optional, Callable, Awaitable, Any
-from functools import wraps
 
 admin_router = Router()
 logger = logging.getLogger(__name__)
@@ -31,48 +30,8 @@ MSG_ERROR_ASSIGN_COLLECTOR = "❌ Ошибка при назначении от�
 MSG_ERROR_DELETE_USER = "❌ Ошибка при удалении пользователя"
 
 
-# --- Декоратор для проверки прав администратора ---
-def require_admin(handler: Callable[..., Awaitable[Any]]):
-    @wraps(handler)
-    async def wrapper(event, admin: Optional[Administrator], *args, **kwargs):
-        state = kwargs.get("state")
-        if not admin:
-            if hasattr(event, "answer"):
-                await event.answer(MSG_NO_ADMIN)
-            elif hasattr(event, "message"):
-                await event.message.answer(MSG_NO_ADMIN)
-            if state:
-                await state.clear()
-            return
-        return await handler(event, admin, *args, **kwargs)
-
-    return wrapper
-
-
-# --- Утилита для получения user_dict из state ---
-async def get_user_dict_from_state(state: FSMContext) -> dict:
-    data = await state.get_data()
-    user_dict = data.get("user_dict")
-    if not user_dict:
-        raise StateDataError("user_dict")
-    return user_dict
-
-
-# --- Утилита для получения user_id по номеру ---
-def get_user_id_by_num(user_dict: dict, num_str: str) -> int:
-    try:
-        user_num = int(num_str)
-        user_id = user_dict.get(user_num)
-        if not user_id:
-            raise ValueError
-        return user_id
-    except Exception:
-        raise ValueError
-
-
 # =============== Главное меню админ панели ===============
 @admin_router.message(F.text == BUTTON_ADMIN_PANEL)
-@require_admin
 async def show_admin_panel(
     message: Message,
     state: FSMContext,
@@ -87,7 +46,7 @@ async def show_admin_panel(
             )
             return
         users.sort(key=lambda user: user.last_name)
-        users_text = "📋 <b>Список всех пользователей:</b>\n\n"
+        users_text = "📋 <b>Список всех пользователей:</b>\n"
 
         user_dict = {}
         for num, user in enumerate(users, 1):
@@ -104,7 +63,7 @@ async def show_admin_panel(
 
         await message.answer(
             "🔐 <b>Админ панель</b>\n"
-            "👥 Управление пользователями\n" + users_text + "Выберите действие:",
+            "👥 Управление пользователями\n\n" + users_text + "\nВыберите действие:",
             reply_markup=get_admin_main_keyboard(),
         )
 
@@ -115,7 +74,6 @@ async def show_admin_panel(
 
 # =============== Назначение активного коллектора ===============
 @admin_router.callback_query(F.data == SET_ACTIVE_COLLECTOR)
-@require_admin
 async def set_active_collector(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
         "👤 Для назначения ответственного за сбор введите его номер согласно админ панели"
@@ -124,7 +82,6 @@ async def set_active_collector(callback: CallbackQuery, state: FSMContext):
 
 
 @admin_router.message(AdminStates.waiting_for_collector_user_num)
-@require_admin
 async def process_active_collector(message: Message, state: FSMContext):
     try:
         user_dict = await get_user_dict_from_state(state)
@@ -160,7 +117,6 @@ async def process_active_collector(message: Message, state: FSMContext):
 
 # =============== Удаление пользователя ===============
 @admin_router.callback_query(F.data == DELETE_USER)
-@require_admin
 async def delete_user_start(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
         "👤 Для удаления пользователя введите его номер согласно админ панели"
@@ -169,7 +125,6 @@ async def delete_user_start(callback: CallbackQuery, state: FSMContext):
 
 
 @admin_router.message(AdminStates.waiting_for_delete_user_num)
-@require_admin
 async def process_delete_user(message: Message, state: FSMContext):
     try:
         user_dict = await get_user_dict_from_state(state)
@@ -182,6 +137,10 @@ async def process_delete_user(message: Message, state: FSMContext):
     try:
         user_id = get_user_id_by_num(user_dict, message.text.strip())
         user = await pg_db.get_user(user_id)
+        if user.administrator or user.service_user:
+            await message.answer("🛑 Вы не можете удалить данного пользователя")
+            await state.clear()
+            return
         # Показываем подтверждение
         await message.answer(
             f"Вы уверены, что хотите удалить пользователя <b>{user.get_full_name()}</b>?",
@@ -204,12 +163,11 @@ async def process_delete_user(message: Message, state: FSMContext):
 
 
 # =============== Подтверждение действий ===============
-@admin_router.callback_query(F.data.regexp(r"^confirm_(\\w+):(\\d+)$"))
-@require_admin
+@admin_router.callback_query(F.data.regexp(r"^confirm_(\w+):(\d+)$"))
 async def confirm_action_callback(callback: CallbackQuery, state: FSMContext):
     import re
 
-    match = re.match(r"^confirm_(\\w+):(\\d+)$", callback.data)
+    match = re.match(r"^confirm_(\w+):(\d+)$", callback.data)
     if not match:
         await callback.answer("Некорректный запрос", show_alert=True)
         return
@@ -261,7 +219,6 @@ async def confirm_action_callback(callback: CallbackQuery, state: FSMContext):
 
 
 @admin_router.callback_query(F.data == "cancel")
-@require_admin
 async def cancel_action_callback(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("❌ Действие отменено.")
     await state.clear()

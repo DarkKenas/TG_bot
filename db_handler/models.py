@@ -31,10 +31,11 @@ class User(Base):
     # Связи с другими таблицами
     wishes: Mapped[List["Wish"]] = relationship("Wish", back_populates="user")
     administrator: Mapped["Administrator"] = relationship(
-        "Administrator", back_populates="user"
+        "Administrator", back_populates="user", lazy="joined"
     )
-    collector: Mapped["Collector"] = relationship("Collector", back_populates="user")
-
+    collector: Mapped["Collector"] = relationship("Collector", back_populates="user", lazy="joined")
+    service_user: Mapped["ServiceUser"] = relationship("ServiceUser", back_populates="user", lazy="joined")
+    
     # Связь с переводами (отправленные)
     sent_transfers: Mapped[List["Transfer"]] = relationship(
         "Transfer",
@@ -60,7 +61,7 @@ class User(Base):
         return f"{self.last_name} {self.first_name} {self.patronymic}"
 
     def get_initials_name(self):
-        return f"{self.last_name} {self.first_name[0]}. {self.patronymic[0]}."
+        return f"{self.last_name} {self.first_name[0]}.{self.patronymic[0]}."
 
 
 class Wish(Base):
@@ -96,7 +97,7 @@ class Administrator(Base):
     )
 
     # Связь с пользователем
-    user: Mapped["User"] = relationship("User", back_populates="administrator")
+    user: Mapped["User"] = relationship("User", lazy="joined", back_populates="administrator")
 
     def __repr__(self):
         return f"Administrator(id={self.id}, user_id={self.user_id})"
@@ -124,13 +125,31 @@ class Collector(Base):
     is_active = Column(Boolean, default=False, nullable=False)
 
     # Связь с пользователем
-    user: Mapped["User"] = relationship("User", back_populates="collector")
+    user: Mapped["User"] = relationship("User", lazy="joined", back_populates="collector")
 
     def __repr__(self):
         return (
             f"Collector(id={self.id}, user_id={self.user_id}, active={self.is_active})"
         )
 
+
+class ServiceUser(Base):
+    """Модель сервисного пользователя"""
+    
+    __tablename__ = "service_users"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    
+    # Связь с пользователем
+    user: Mapped["User"] = relationship("User", back_populates="service_user")
+    
+    def __repr__(self):
+        return f"ServiceUser(id={self.id}, user_id={self.user_id})"
 
 class Transfer(Base):
     """Модель перевода"""

@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy import select, text, delete, or_, and_, extract, update, func
-from sqlalchemy.orm import sessionmaker, selectinload
+from sqlalchemy import select, text, delete, or_, and_, extract, func
+from sqlalchemy.orm import selectinload
 from datetime import date, datetime
 import logging
 from typing import TypeVar, Type
@@ -13,6 +13,7 @@ from .models import (
     Greeting,
     Administrator,
     Collector,
+    ServiceUser
 )
 from exceptions.my_exceptions import (
     UserIdExist,
@@ -29,11 +30,7 @@ T = TypeVar("T")
 
 class PostgresHandler:
     def __init__(self, db_url: str):
-        # Преобразуем URL для asyncpg
-        if db_url.startswith("postgresql://"):
-            db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-        elif db_url.startswith("postgres://"):
-            db_url = db_url.replace("postgres://", "postgres+asyncpg://", 1)
+        # URL уже содержит +asyncpg (конвертация в config.py)
         self.db_url = db_url
         self.engine = None
         self.async_session = None
@@ -60,6 +57,28 @@ class PostgresHandler:
         except Exception as e:
             logger.exception(f"❌ Database connection failed: {e}")
             raise
+        
+    async def close_pool(self):
+        """Закрытие подключения"""
+        if self.engine:
+            await self.engine.dispose()
+            logger.info("Database connection closed")
+            
+    async def init_data(self, service_user_id: int) -> None:
+        """Функция инициализации начальных данных в БД
+
+        Args:
+            service_user_id (int): id сервисного пользователя
+        """
+        async with self.async_session() as session:
+            result = await session.execute(select(ServiceUser))
+            existing = result.scalars().first()
+            if not existing:
+                session.add(ServiceUser(user_id=service_user_id))
+                await session.commit()
+        logger.info("✅ Date initialization was successful")
+
+    # === СЕРВИСНЫЕ МЕТОДЫ ===
 
     async def _check_connection(self):
         """Проверка подключения к БД"""
@@ -67,14 +86,7 @@ class PostgresHandler:
             result = await session.execute(text("SELECT 1"))
             if result.scalar() != 1:
                 raise ConnectionError("Unexpected result")
-
-    async def close_pool(self):
-        """Закрытие подключения"""
-        if self.engine:
-            await self.engine.dispose()
-            logger.info("Database connection closed")
-
-    # === СЕРВИСНЫЕ МЕТОДЫ ===
+            
     async def _get_obj_or_raise(
         self,
         user_id: int,
@@ -381,36 +393,65 @@ class PostgresHandler:
 
     # === МЕТОДЫ ДЛЯ АДМИНИСТРАТОРА ===
 
-    async def create_administrator(self, user_id: int) -> Administrator:
+    async def add_administrator(self, user_id: int):
         """Создание записи администратора"""
+        user_id = int(user_id)
         async with self.async_session() as session:
             # Проверяем, не является ли уже админом
-            existing_admin = await session.execute(select(func.count(Administrator.id)))
-
-            if existing_admin.scalar():
-                raise RecordExist(
-                    "administrators", user_id=user_id, description="В БД уже есть Админ"
-                )
+            existing_admin = await session.get(Administrator, user_id)
+            
+            if existing_admin:
+                raise RecordExist(Administrator.__tablename__, user_id=user_id)
 
             administrator = Administrator(user_id=user_id)
             session.add(administrator)
             await session.commit()
-            await session.refresh(administrator)
 
             logger.info(f"✅ Создан администратор для пользователя {user_id}")
-            return administrator
 
-    async def get_administrator(self) -> Administrator:
-        """Получение единственного администратора (с валидацией)"""
+    async def get_administrator(self, user_id: int) -> Administrator:
+        """Получение админа"""
+        user_id = int(user_id)
+        async with self.async_session() as session:
+            return await self._get_obj_or_raise(user_id, session, Administrator)
+    
+    async def delete_administrator(self, user_id: int) -> Administrator:
+        """Удаление администратора"""
+        async with self.async_session() as session:
+            admin = await self._get_obj_or_raise(user_id, session, Administrator)
+            await session.delete(admin)
+            await session.commit()
+            logger.info(f"✅ Admin {user_id} deleted from database")
+    
+    async def get_all_administrators(self) -> list[Administrator]:
+        """Получение всех админов
+
+        Returns:
+            list[Administrator]: Список админов
+        """
         async with self.async_session() as session:
             result = await session.execute(select(Administrator))
-            admin = result.scalar_one_or_none()
-            if not admin:
-                raise RecordNotFound(
-                    None, "administrators", details="Администратор не найден"
-                )
-            return admin
-
+            return result.scalars().all()
+        
+    # === МЕТОДЫ ДЛЯ СЕРВИС ЮЗЕРА ===
+    async def set_service_user(self, user_id: int) -> ServiceUser:
+        user_id = int(user_id)
+        async with self.async_session() as session:
+            result = await session.execute(select(ServiceUser))
+            service_user = result.scalars().first()
+            if service_user:
+                service_user.user_id == user_id
+            else:
+                service_user = ServiceUser(user_id=user_id)
+                session.add(service_user)
+            await session.commit()
+            logger.info(f"✅ Установлен сервисный пользователь с user_id: {user_id}")
+    
+    async def get_service_user(self) -> ServiceUser:
+        async with self.async_session() as session:
+            result = await session.execute(select(ServiceUser))
+            return result.scalar_one()
+            
     # === МЕТОДЫ ДЛЯ КОЛЛЕКТОРА ===
 
     async def create_collector(
