@@ -15,10 +15,9 @@ from .models import (
     Collector,
     ServiceUser
 )
-from exceptions.my_exceptions import (
-    UserIdExist,
+from exceptions import (
     RecordNotFound,
-    RecordExist,
+    RecordAlreadyExists,
     CollectorUniquenessError,
 )
 
@@ -123,7 +122,7 @@ class PostgresHandler:
             obj = result.scalar_one_or_none()
 
         if not obj:
-            raise RecordNotFound(user_id, model_class.__tablename__)
+            raise RecordNotFound(entity=model_class.__name__, entity_id=user_id)
         return obj
 
     # === МЕТОДЫ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ ===
@@ -152,7 +151,7 @@ class PostgresHandler:
             # Проверяем, есть ли уже такой пользователь
             existing_user = await session.get(User, user_id)
             if existing_user:
-                raise UserIdExist(user_id)
+                raise RecordAlreadyExists(entity=User.__name__, entity_id=user_id)
 
             new_user = User(
                 user_id=user_id,
@@ -257,7 +256,7 @@ class PostgresHandler:
         async with self.async_session() as session:
             wish = await session.get(Wish, wish_id)
             if not wish:
-                raise RecordNotFound(wish_id, Wish.__tablename__)
+                raise RecordNotFound(entity=Wish.__name__, entity_id=wish_id)
             return wish
 
     async def get_wish_list(self, user_id: int) -> list[Wish]:
@@ -281,7 +280,11 @@ class PostgresHandler:
                 await session.commit()
                 logger.info(f"✅ Wish {wish_id} deleted by user {user_id}")
             else:
-                raise RecordNotFound(wish_id, Wish.__tablename__, user_id=user_id)
+                raise RecordNotFound(
+                    entity=Wish.__name__,
+                    entity_id=wish_id,
+                    details={"user_id": user_id},
+                )
 
     async def update_wish(
         self,
@@ -312,7 +315,11 @@ class PostgresHandler:
                 await session.commit()
                 logger.info(f"✅ Wish {wish_id} updated by user {user_id}")
             else:
-                raise RecordNotFound(wish_id, Wish.__tablename__, user_id=user_id)
+                raise RecordNotFound(
+                    entity=Wish.__name__,
+                    entity_id=wish_id,
+                    details={"user_id": user_id},
+                )
 
     # === МЕТОДЫ ДЛЯ ПЕРЕВОДОВ ===
 
@@ -401,7 +408,7 @@ class PostgresHandler:
             existing_admin = await session.get(Administrator, user_id)
             
             if existing_admin:
-                raise RecordExist(Administrator.__tablename__, user_id=user_id)
+                raise RecordAlreadyExists(entity=Administrator.__name__, entity_id=user_id)
 
             administrator = Administrator(user_id=user_id)
             session.add(administrator)
@@ -440,7 +447,7 @@ class PostgresHandler:
             result = await session.execute(select(ServiceUser))
             service_user = result.scalars().first()
             if service_user:
-                service_user.user_id == user_id
+                service_user.user_id = user_id
             else:
                 service_user = ServiceUser(user_id=user_id)
                 session.add(service_user)
@@ -467,7 +474,7 @@ class PostgresHandler:
                 select(Collector).where(Collector.user_id == user_id)
             )
             if existing_collector.scalar_one_or_none():
-                raise RecordExist("collectors", user_id=user_id)
+                raise RecordAlreadyExists(entity=Collector.__name__, entity_id=user_id)
 
             collector = Collector(
                 user_id=user_id,
@@ -532,7 +539,8 @@ class PostgresHandler:
 
             if not collector:
                 raise RecordNotFound(
-                    None, "collectors", details="Активный коллектор не найден"
+                    message="Активный коллектор не найден",
+                    entity=Collector.__name__,
                 )
 
             return collector
@@ -548,9 +556,8 @@ class PostgresHandler:
 
             if not collector:
                 raise RecordNotFound(
-                    user_id,
-                    "collectors",
-                    details=f"Коллектор с user_id {user_id} не найден",
+                    entity=Collector.__name__,
+                    entity_id=user_id,
                 )
 
             # Деактивируем текущего активного коллектора

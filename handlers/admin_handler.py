@@ -1,7 +1,9 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
-from create_bot import pg_db
+import logging
+
+from db_handler import PostgresHandler
 from keyboards.main_menu_keyboards import BUTTON_ADMIN_PANEL
 from keyboards.admin_keyboards import (
     get_admin_main_keyboard,
@@ -12,14 +14,12 @@ from keyboards.admin_keyboards import (
 from keyboards.collector_keyboards import get_collector_create_keyboard
 from states.user_states import AdminStates
 from db_handler.models import Collector
-from exceptions.my_exceptions import RecordNotFound, StateDataError
+from exceptions import RecordNotFound, StateDataError
 from .services.service_user_list import get_user_dict_from_state, get_user_id_by_num
-import logging
 
 admin_router = Router()
 logger = logging.getLogger(__name__)
 
-# --- Шаблоны сообщений ---
 MSG_NO_ADMIN = "❌ У вас нет прав администратора"
 MSG_SESSION_EXPIRED = "❌ Сессия админ панели устарела"
 MSG_INVALID_NUMBER = "❌ Неверный номер. Введите число из списка:\n{nums}"
@@ -31,26 +31,27 @@ MSG_ERROR_DELETE_USER = "❌ Ошибка при удалении пользов
 
 
 # =============== Главное меню админ панели ===============
+
 @admin_router.message(F.text == BUTTON_ADMIN_PANEL)
 async def show_admin_panel(
     message: Message,
     state: FSMContext,
     active_collector: Collector | None,
+    db: PostgresHandler,
 ):
     """Показ главной админ панели"""
     try:
-        users = await pg_db.get_all_users()
+        users = await db.get_all_users()
         if not users:
-            await message.answer(
-                "📋 <b>Список пользователей пуст</b>",
-            )
+            await message.answer("📋 <b>Список пользователей пуст</b>")
             return
+
         users.sort(key=lambda user: user.last_name)
         users_text = "📋 <b>Список всех пользователей:</b>\n"
 
         user_dict = {}
         for num, user in enumerate(users, 1):
-            users_text += f"  {num}. {user.get_full_name()}\n"
+            users_text += f"  {num}. {user.full_name}\n"
             user_dict[num] = user.user_id
 
         await state.update_data(user_dict=user_dict)
@@ -58,7 +59,7 @@ async def show_admin_panel(
         if active_collector is not None:
             users_text += (
                 "\n\n  Ответственный за сбор средств:\n"
-                f"🟢 {active_collector.user.get_initials_name()}"
+                f"🟢 {active_collector.user.initials}"
             )
 
         await message.answer(
@@ -73,6 +74,7 @@ async def show_admin_panel(
 
 
 # =============== Назначение активного коллектора ===============
+
 @admin_router.callback_query(F.data == SET_ACTIVE_COLLECTOR)
 async def set_active_collector(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
@@ -82,7 +84,7 @@ async def set_active_collector(callback: CallbackQuery, state: FSMContext):
 
 
 @admin_router.message(AdminStates.waiting_for_collector_user_num)
-async def process_active_collector(message: Message, state: FSMContext):
+async def process_active_collector(message: Message, state: FSMContext, db: PostgresHandler):
     try:
         user_dict = await get_user_dict_from_state(state)
     except StateDataError as e:
@@ -93,10 +95,9 @@ async def process_active_collector(message: Message, state: FSMContext):
 
     try:
         user_id = get_user_id_by_num(user_dict, message.text.strip())
-        user = await pg_db.get_user(user_id)
-        # Показываем подтверждение
+        user = await db.get_user(user_id)
         await message.answer(
-            f"Вы уверены, что хотите назначить <b>{user.get_full_name()}</b> ответственным за сбор?",
+            f"Вы уверены, что хотите назначить <b>{user.full_name}</b> ответственным за сбор?",
             reply_markup=get_confirm_action_keyboard("set_collector", user_id),
         )
         await state.clear()
@@ -116,6 +117,7 @@ async def process_active_collector(message: Message, state: FSMContext):
 
 
 # =============== Удаление пользователя ===============
+
 @admin_router.callback_query(F.data == DELETE_USER)
 async def delete_user_start(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
@@ -125,7 +127,7 @@ async def delete_user_start(callback: CallbackQuery, state: FSMContext):
 
 
 @admin_router.message(AdminStates.waiting_for_delete_user_num)
-async def process_delete_user(message: Message, state: FSMContext):
+async def process_delete_user(message: Message, state: FSMContext, db: PostgresHandler):
     try:
         user_dict = await get_user_dict_from_state(state)
     except StateDataError as e:
@@ -136,14 +138,13 @@ async def process_delete_user(message: Message, state: FSMContext):
 
     try:
         user_id = get_user_id_by_num(user_dict, message.text.strip())
-        user = await pg_db.get_user(user_id)
+        user = await db.get_user(user_id)
         if user.administrator or user.service_user:
             await message.answer("🛑 Вы не можете удалить данного пользователя")
             await state.clear()
             return
-        # Показываем подтверждение
         await message.answer(
-            f"Вы уверены, что хотите удалить пользователя <b>{user.get_full_name()}</b>?",
+            f"Вы уверены, что хотите удалить пользователя <b>{user.full_name}</b>?",
             reply_markup=get_confirm_action_keyboard("delete_user", user_id),
         )
         await state.clear()
@@ -163,34 +164,40 @@ async def process_delete_user(message: Message, state: FSMContext):
 
 
 # =============== Подтверждение действий ===============
+
 @admin_router.callback_query(F.data.regexp(r"^confirm_(\w+):(\d+)$"))
-async def confirm_action_callback(callback: CallbackQuery, state: FSMContext):
+async def confirm_action_callback(
+    callback: CallbackQuery, state: FSMContext, db: PostgresHandler
+):
     import re
 
     match = re.match(r"^confirm_(\w+):(\d+)$", callback.data)
     if not match:
         await callback.answer("Некорректный запрос", show_alert=True)
         return
+
     action_type, target_id = match.group(1), int(match.group(2))
+
     if action_type == "delete_user":
         try:
-            user = await pg_db.get_user(target_id)
-            await pg_db.delete_user(target_id)
+            user = await db.get_user(target_id)
+            await db.delete_user(target_id)
             await callback.message.edit_text(
-                f"🗑 Пользователь <b>{user.get_full_name()}</b> успешно удалён."
+                f"🗑 Пользователь <b>{user.full_name}</b> успешно удалён."
             )
         except RecordNotFound:
             await callback.message.edit_text(MSG_USER_NOT_FOUND)
         except Exception as e:
             logger.exception(f"Ошибка при удалении пользователя: {e}")
             await callback.message.edit_text(MSG_ERROR_DELETE_USER)
+
     elif action_type == "set_collector":
         try:
-            user = await pg_db.get_user(target_id)
+            user = await db.get_user(target_id)
             try:
-                active_collector = await pg_db.set_active_collector(target_id)
+                active_collector = await db.set_active_collector(target_id)
                 await callback.message.edit_text(
-                    f"✅ Пользователь: <b>{user.get_full_name()}</b>\n"
+                    f"✅ Пользователь: <b>{user.full_name}</b>\n"
                     "Назначен ответственным за сбор средств 💰\n\n"
                     "Новые данные для перевода:\n"
                     f"📱 Телефон: <code>{active_collector.phone_number}</code>\n"
@@ -204,9 +211,9 @@ async def confirm_action_callback(callback: CallbackQuery, state: FSMContext):
                     reply_markup=get_collector_create_keyboard(),
                 )
                 await callback.message.edit_text(
-                    f"👤 Пользователю <b>{user.get_full_name()}</b> отправлен запрос "
+                    f"👤 Пользователю <b>{user.full_name}</b> отправлен запрос "
                     "на регистрацию данных для сбора средств\n\n"
-                    f"⏰ Вам придет уведомление, когда данные будут получены..."
+                    "⏰ Вам придет уведомление, когда данные будут получены..."
                 )
         except Exception as e:
             logger.exception(f"Ошибка при назначении коллектора: {e}")

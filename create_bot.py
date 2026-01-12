@@ -6,7 +6,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import get_settings
-from db_handler.db_class import PostgresHandler
+from db_handler import PostgresHandler
 
 # Загружаем настройки (валидация происходит здесь!)
 settings = get_settings()

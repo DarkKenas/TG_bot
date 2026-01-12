@@ -11,7 +11,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import DeclarativeMeta, relationship, Mapped
-from typing import List
 
 Base: DeclarativeMeta = declarative_base()
 
@@ -29,15 +28,19 @@ class User(Base):
     birth_date = Column(Date)
 
     # Связи с другими таблицами
-    wishes: Mapped[List["Wish"]] = relationship("Wish", back_populates="user")
+    wishes: Mapped[list["Wish"]] = relationship("Wish", back_populates="user")
     administrator: Mapped["Administrator"] = relationship(
         "Administrator", back_populates="user", lazy="joined"
     )
-    collector: Mapped["Collector"] = relationship("Collector", back_populates="user", lazy="joined")
-    service_user: Mapped["ServiceUser"] = relationship("ServiceUser", back_populates="user", lazy="joined")
+    collector: Mapped["Collector"] = relationship(
+        "Collector", back_populates="user", lazy="joined"
+    )
+    service_user: Mapped["ServiceUser"] = relationship(
+        "ServiceUser", back_populates="user", lazy="joined"
+    )
     
     # Связь с переводами (отправленные)
-    sent_transfers: Mapped[List["Transfer"]] = relationship(
+    sent_transfers: Mapped[list["Transfer"]] = relationship(
         "Transfer",
         foreign_keys="Transfer.sender_id",
         back_populates="sender",
@@ -46,7 +49,7 @@ class User(Base):
     )
 
     # Связь с переводами (полученные для именинника)
-    received_transfers: Mapped[List["Transfer"]] = relationship(
+    received_transfers: Mapped[list["Transfer"]] = relationship(
         "Transfer",
         foreign_keys="Transfer.birthday_user_id",
         back_populates="birthday_user",
@@ -57,11 +60,28 @@ class User(Base):
     def __repr__(self):
         return f"User(id={self.user_id}, username={self.username})"
 
-    def get_full_name(self):
+    @property
+    def full_name(self) -> str:
         return f"{self.last_name} {self.first_name} {self.patronymic}"
 
-    def get_initials_name(self):
+    @property
+    def initials(self) -> str:
         return f"{self.last_name} {self.first_name[0]}.{self.patronymic[0]}."
+
+    @property
+    def is_admin(self) -> bool:
+        """Является ли пользователь администратором."""
+        return self.administrator is not None
+
+    @property
+    def is_collector(self) -> bool:
+        """Является ли пользователь коллектором."""
+        return self.collector is not None
+
+    @property
+    def is_service_user(self) -> bool:
+        """Является ли пользователь сервисным."""
+        return self.service_user is not None
 
 
 class Wish(Base):

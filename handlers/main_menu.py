@@ -1,7 +1,7 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
-from create_bot import pg_db
 from aiogram.fsm.context import FSMContext
+from db_handler import PostgresHandler
 from handlers.wish_handler import start_add_wish, show_wish_edit_menu
 from handlers.register import show_edit_menu
 from keyboards.wishlist_keyboards import (
@@ -27,6 +27,7 @@ main_menu_router = Router()
 
 
 # =============== Обработка кнопок главного меню ===============
+
 @main_menu_router.message(F.text == BUTTON_MY_DATA)
 async def show_user_data(message: Message, state: FSMContext, user: User):
     """Показать данные пользователя"""
@@ -56,17 +57,16 @@ async def show_user_data(message: Message, state: FSMContext, user: User):
 
 
 @main_menu_router.message(F.text == BUTTON_MY_WISHES)
-async def show_wishlist(message: Message, state: FSMContext):
+async def show_wishlist(message: Message, state: FSMContext, db: PostgresHandler):
     """Показать wishlist пользователя"""
     try:
-        wish_list = await pg_db.get_wish_list(message.from_user.id)
+        wish_list = await db.get_wish_list(message.from_user.id)
         if not wish_list:
             await message.answer("🎯 Ваш WishList пуст.")
             return
 
-        user_text = f"🎯 <b>Ваш WishList:</b>\n\n"
+        user_text = "🎯 <b>Ваш WishList:</b>\n\n"
 
-        # Передаем список wish_id в state
         wish_list_id = [wish.id for wish in wish_list]
         await state.update_data(wish_list_id=wish_list_id)
 
@@ -84,7 +84,7 @@ async def show_wishlist(message: Message, state: FSMContext):
 
     except Exception as e:
         await message.answer("Ошибка загрузки данных 😵")
-        state.clear()
+        await state.clear()
 
 
 @main_menu_router.message(F.text == BUTTON_ADD_WISH)
@@ -94,10 +94,10 @@ async def add_wish_from_menu(message: Message, state: FSMContext):
 
 
 @main_menu_router.message(F.text == BUTTON_SERVICE_CHAT)
-async def show_support(message: Message):
+async def show_support(message: Message, db: PostgresHandler):
     """Показать контакты тех. поддержки"""
     try:
-        service_user = await pg_db.get_service_user()
+        service_user = await db.get_service_user()
         await message.answer(
             "Если у вас возникли вопросы ⚠️❔, \nпожалуйста свяжитесь с сервисным специалистом 🦸‍♂️:",
             reply_markup=await get_service_chat_keyboard(service_user.user_id),
@@ -114,7 +114,7 @@ async def cancel(message: Message, state: FSMContext):
 
 
 # =============== Обработка кнопок редактирования ===============
-# Редактирование данных пользователя
+
 @main_menu_router.callback_query(F.data == "edit_user_data")
 async def process_edit_user_data(callback: CallbackQuery, state: FSMContext):
     """Обработка кнопки редактирования данных пользователя"""
@@ -122,7 +122,6 @@ async def process_edit_user_data(callback: CallbackQuery, state: FSMContext):
     await show_edit_menu(callback, state)
 
 
-# Редактирование списка желаний
 @main_menu_router.callback_query(F.data == "edit_wishlist")
 async def process_edit_wishlist(callback: CallbackQuery, state: FSMContext):
     """Обработка кнопки редактирования желания"""
@@ -142,7 +141,6 @@ async def process_edit_wishlist(callback: CallbackQuery, state: FSMContext):
     await callback.answer("Выберите какой wish редактировать")
 
 
-# Подготовка к редактированию выбранного wish
 @main_menu_router.callback_query(F.data.startswith("select_wish:"))
 async def process_select_wish(callback: CallbackQuery, state: FSMContext):
     """Обработка кнопки выбора wish для редактирования"""
@@ -152,12 +150,12 @@ async def process_select_wish(callback: CallbackQuery, state: FSMContext):
 
 
 @main_menu_router.callback_query(F.data == "edit_wish")
-async def process_edit_wish(callback: CallbackQuery, state: FSMContext):
+async def process_edit_wish(callback: CallbackQuery, state: FSMContext, db: PostgresHandler):
     data = await state.get_data()
     wish_id = data.get("wish_id")
     try:
-        wish = await pg_db.get_wish(wish_id)
-    except:
+        wish = await db.get_wish(wish_id)
+    except Exception:
         logger.error(
             f"Ошибка получения: Wish с id {wish_id} для пользователя {callback.from_user.id}"
         )
@@ -169,15 +167,14 @@ async def process_edit_wish(callback: CallbackQuery, state: FSMContext):
     await show_wish_edit_menu(callback, state)
 
 
-# Удаление желания
 @main_menu_router.callback_query(F.data == "delete_wish")
-async def process_delete_wish(callback: CallbackQuery, state: FSMContext):
+async def process_delete_wish(callback: CallbackQuery, state: FSMContext, db: PostgresHandler):
     """Обработка кнопки удаления wish"""
     data = await state.get_data()
     wish_id = data.get("wish_id")
     try:
-        await pg_db.delete_wish(wish_id, callback.from_user.id)
-    except:
+        await db.delete_wish(wish_id, callback.from_user.id)
+    except Exception:
         logger.error(
             f"Ошибка удаления: Wish с id {wish_id} для пользователя {callback.from_user.id}"
         )

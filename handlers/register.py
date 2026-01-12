@@ -5,13 +5,13 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
 from states.user_states import UserDataStates
-from create_bot import pg_db, bot
+from db_handler import PostgresHandler
 from keyboards.register_keyboards import (
     get_userdata_edit_keyboard,
     get_registration_keyboard,
 )
 from keyboards.main_menu_keyboards import get_main_menu_keyboard
-from exceptions.my_exceptions import UserIdExist, RecordNotFound
+from exceptions import RecordAlreadyExists, RecordNotFound
 from handlers.services.service_register import (
     handle_last_name,
     handle_first_name,
@@ -20,21 +20,11 @@ from handlers.services.service_register import (
     handle_confirmation,
 )
 
-# Инициализация
 register_router = Router()
 logger = logging.getLogger(__name__)
 
 
 # ========== Обработчики регистрации ==========
-"""
-Группа обработчиков для процесса регистрации пользователя:
-- start_registration: начало регистрации (callback 'register')
-- process_last_name: ввод и валидация фамилии
-- process_first_name: ввод и валидация имени
-- process_patronymic: ввод и валидация отчества
-- process_birth_date: ввод и валидация даты рождения
-"""
-
 
 @register_router.callback_query(F.data == "register")
 async def start_registration(callback: CallbackQuery, state: FSMContext):
@@ -46,7 +36,6 @@ async def start_registration(callback: CallbackQuery, state: FSMContext):
     await state.set_state(UserDataStates.waiting_for_last_name)
 
 
-# Обработка фамилии
 @register_router.message(UserDataStates.waiting_for_last_name)
 async def process_last_name(message: Message, state: FSMContext):
     """Обработка фамилии"""
@@ -61,7 +50,6 @@ async def process_last_name(message: Message, state: FSMContext):
         await state.set_state(UserDataStates.waiting_for_first_name)
 
 
-# Обработка имени
 @register_router.message(UserDataStates.waiting_for_first_name)
 async def process_first_name(message: Message, state: FSMContext):
     """Обработка имени"""
@@ -76,7 +64,6 @@ async def process_first_name(message: Message, state: FSMContext):
         await state.set_state(UserDataStates.waiting_for_patronymic)
 
 
-# Обработка отчества
 @register_router.message(UserDataStates.waiting_for_patronymic)
 async def process_patronymic(message: Message, state: FSMContext):
     """Обработка отчества"""
@@ -91,7 +78,6 @@ async def process_patronymic(message: Message, state: FSMContext):
         await state.set_state(UserDataStates.waiting_for_birth_date)
 
 
-# Обработка даты рождения
 @register_router.message(UserDataStates.waiting_for_birth_date)
 async def process_birth_date(message: Message, state: FSMContext):
     """Обработка даты рождения"""
@@ -102,16 +88,9 @@ async def process_birth_date(message: Message, state: FSMContext):
 
 
 # ========== Обработчики подтверждения данных ==========
-"""
-Группа обработчиков для подтверждения и сохранения данных:
-- confirm_data: сохранение данных после подтверждения
-- edit_data: редактирование данных при отказе
-- cancel_edit: отмена редактирования
-"""
-
 
 @register_router.callback_query(F.data == "confirm_yes", UserDataStates.confirmation)
-async def confirm_data(callback: CallbackQuery, state: FSMContext):
+async def confirm_data(callback: CallbackQuery, state: FSMContext, db: PostgresHandler):
     """Подтверждение данных"""
     data = await state.get_data()
     user_data_dict = {
@@ -126,13 +105,12 @@ async def confirm_data(callback: CallbackQuery, state: FSMContext):
     try:
         if data.get("is_register"):
             operation_type = "сохранении"
-            # Сохраняем в БД
-            await pg_db.add_user(**user_data_dict)
+            await db.add_user(**user_data_dict)
         else:
             operation_type = "обновлении"
-            await pg_db.update_user(**user_data_dict)
+            await db.update_user(**user_data_dict)
 
-    except UserIdExist as e:
+    except RecordAlreadyExists as e:
         logger.warning(e)
         await callback.message.edit_text("<b>Вы уже зарегистрированы ☺️</b>")
         await state.clear()
@@ -168,7 +146,7 @@ async def confirm_data(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(success_text)
 
     if data.get("is_register"):
-        await bot.send_message(
+        await callback.bot.send_message(
             chat_id=callback.message.chat.id,
             text="Можете пополнять свой WishList 🤗",
             reply_markup=await get_main_menu_keyboard(),
@@ -176,6 +154,7 @@ async def confirm_data(callback: CallbackQuery, state: FSMContext):
 
 
 # ========== Редактирование данных ==========
+
 @register_router.callback_query(F.data == "confirm_no", UserDataStates.confirmation)
 async def show_edit_menu(callback: CallbackQuery, state: FSMContext):
     """Показать меню редактирования"""
@@ -184,7 +163,6 @@ async def show_edit_menu(callback: CallbackQuery, state: FSMContext):
     await state.update_data(is_edit=True)
 
 
-# Редактирование фамилии
 @register_router.callback_query(F.data == "edit_last_name", UserDataStates.confirmation)
 async def edit_last_name(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_reply_markup()
@@ -192,30 +170,21 @@ async def edit_last_name(callback: CallbackQuery, state: FSMContext):
     await state.set_state(UserDataStates.waiting_for_last_name)
 
 
-# Редактирование имени
-@register_router.callback_query(
-    F.data == "edit_first_name", UserDataStates.confirmation
-)
+@register_router.callback_query(F.data == "edit_first_name", UserDataStates.confirmation)
 async def edit_first_name(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_reply_markup()
     await callback.message.answer("Введите имя 👤:")
     await state.set_state(UserDataStates.waiting_for_first_name)
 
 
-# Редактирование отчества
-@register_router.callback_query(
-    F.data == "edit_patronymic", UserDataStates.confirmation
-)
+@register_router.callback_query(F.data == "edit_patronymic", UserDataStates.confirmation)
 async def edit_patronymic(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_reply_markup()
     await callback.message.answer("Введите отчество 👤:")
     await state.set_state(UserDataStates.waiting_for_patronymic)
 
 
-# Редактирование даты рождения
-@register_router.callback_query(
-    F.data == "edit_birth_date", UserDataStates.confirmation
-)
+@register_router.callback_query(F.data == "edit_birth_date", UserDataStates.confirmation)
 async def edit_birth_date(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_reply_markup()
     await callback.message.answer("Введите дату рождения в формате ДД.ММ.ГГГГ 📅:")

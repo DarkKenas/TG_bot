@@ -1,6 +1,9 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
-from create_bot import pg_db
+from aiogram.fsm.context import FSMContext
+import logging
+
+from db_handler import PostgresHandler
 from keyboards.main_menu_keyboards import BUTTON_COLLECTOR_PANEL
 from keyboards.collector_keyboards import (
     get_collector_menu_keyboard,
@@ -13,24 +16,22 @@ from keyboards.collector_keyboards import (
     EDIT_COLLECTOR_BANK,
     SKIP_COLLECTOR_BANK,
 )
-from db_handler.models import Collector, Transfer, Administrator, User
+from db_handler.models import Transfer, User
 from states.user_states import CollectorStates
 from handlers.services.service_collector import (
     handle_phone,
     handle_bank,
     handle_collector_confirmation,
 )
-from aiogram.fsm.context import FSMContext
-import logging
 
 collector_router = Router()
 logger = logging.getLogger(__name__)
 
 
 @collector_router.message(F.text == BUTTON_COLLECTOR_PANEL)
-async def show_collector_panel(message: Message, collector: Collector | None):
+async def show_collector_panel(message: Message, user: User):
     """Показ панели коллектора"""
-    # Проверяем, является ли пользователь коллектором
+    collector = user.collector
     if not collector:
         await message.answer("❌ У вас нет доступа к сбор панели")
         return
@@ -56,15 +57,13 @@ async def show_collector_panel(message: Message, collector: Collector | None):
 
 
 @collector_router.callback_query(F.data == UPDATE_COLLECTOR_DATA)
-async def update_collector_data(
-    callback: CallbackQuery, collector: Collector | None, state: FSMContext
-):
+async def update_collector_data(callback: CallbackQuery, user: User, state: FSMContext):
     """Показать меню обновления данных коллектора"""
+    collector = user.collector
     if not collector:
         await callback.answer("❌ У вас нет доступа к этой функции", show_alert=True)
         return
 
-    # Сохраняем текущие данные в state
     await state.update_data(
         phone_number=collector.phone_number, bank_name=collector.bank_name, is_edit=True
     )
@@ -79,8 +78,9 @@ async def create_collector_data(callback: CallbackQuery, state: FSMContext):
 
 
 @collector_router.callback_query(F.data == VIEW_ALL_TRANSFERS)
-async def view_all_transfers(callback: CallbackQuery, collector: Collector | None):
+async def view_all_transfers(callback: CallbackQuery, user: User, db: PostgresHandler):
     """Просмотр всех переводов (только для активного коллектора)"""
+    collector = user.collector
     if not collector:
         await callback.answer("❌ У вас нет доступа к этой функции", show_alert=True)
         return
@@ -92,8 +92,7 @@ async def view_all_transfers(callback: CallbackQuery, collector: Collector | Non
         return
 
     try:
-        # Получаем все переводы
-        transfers = await pg_db.get_all_transfers()
+        transfers = await db.get_all_transfers()
 
         if not transfers:
             await callback.message.edit_text("📋 <b>Список переводов пуст</b>")
@@ -111,15 +110,14 @@ async def view_all_transfers(callback: CallbackQuery, collector: Collector | Non
         report_lines = ["📋 <b>Отчет по переводам:</b>\n"]
 
         for birthday_user_id, user_transfers in grouped_transfers.items():
-            # Получаем информацию об именинике
             birthday_user = user_transfers[0].birthday_user
 
-            report_lines.append(f"\n🎂 <b>{birthday_user.get_full_name()}</b>:\n")
+            report_lines.append(f"\n🎂 <b>{birthday_user.full_name}</b>:\n")
 
             for transfer in user_transfers:
                 transfer_date = transfer.transfer_datetime.strftime("%d.%m.%Y %H:%M")
                 report_lines.append(
-                    f"\n  💰 {transfer.sender.get_initials_name()} - {transfer_date}"
+                    f"\n  💰 {transfer.sender.initials} - {transfer_date}"
                 )
 
         report_text = "".join(report_lines)
@@ -135,9 +133,10 @@ async def view_all_transfers(callback: CallbackQuery, collector: Collector | Non
 
 
 # =============== Обработчики редактирования данных коллектора ===============
+
 @collector_router.callback_query(F.data == EDIT_COLLECTOR_PHONE)
 async def edit_collector_phone(callback: CallbackQuery, state: FSMContext):
-    """Начать редактирование номера телефона - универсальная функция"""
+    """Начать редактирование номера телефона"""
     phone_text = (
         "📱 Введите номер телефона в формате:\n" "• +7XXXXXXXXXX\n" "• 8XXXXXXXXXX\n"
     )
@@ -163,7 +162,6 @@ async def skip_collector_bank(callback: CallbackQuery, state: FSMContext):
 
 # =============== Обработчики состояний FSM ===============
 
-
 @collector_router.message(CollectorStates.waiting_for_phone)
 async def process_collector_phone(message: Message, state: FSMContext):
     """Обработка номера телефона коллектора"""
@@ -174,7 +172,6 @@ async def process_collector_phone(message: Message, state: FSMContext):
     if data.get("is_edit"):
         await handle_collector_confirmation(message, state)
     else:
-        # Если это не редактирование, переходим к банку
         await message.answer("🏦 Теперь введите название банка:")
         await state.set_state(CollectorStates.waiting_for_bank)
 
@@ -192,38 +189,27 @@ async def process_collector_bank(message: Message, state: FSMContext):
 async def confirm_collector_data(
     callback: CallbackQuery,
     state: FSMContext,
-    user: User,
-    admin: Administrator | None,
+    db: PostgresHandler,
 ):
-    """Подтверждение данных коллектора - создание или обновление (обычный пользователь)"""
+    """Подтверждение данных коллектора - создание или обновление."""
     data = await state.get_data()
-
     user_id = callback.from_user.id
     is_edit = data.get("is_edit", False)
 
     try:
         if is_edit:
-            # Обновляем данные существующего коллектора
-            await pg_db.update_collector(
+            await db.update_collector(
                 user_id=user_id,
                 phone_number=data.get("phone_number"),
                 bank_name=data.get("bank_name"),
             )
         else:
-            # Создаем нового коллектора
-            await pg_db.create_collector(
+            await db.create_collector(
                 user_id=user_id,
                 phone_number=data.get("phone_number"),
                 bank_name=data.get("bank_name"),
             )
-            await pg_db.set_active_collector(user_id)
-            admin_message = (
-                f"✅ Пользователь: <b>{user.get_initials_name()}</b>\n"
-                "Назначен ответственным за сбор средств 💰\n\n"
-                "Новые данные для перевода:\n"
-                f"📱 Телефон: <code>{data.get("phone_number")}</code>\n"
-                f"🏦 Банк: {data.get("bank_name") or 'не указан'}"
-            )
+            await db.set_active_collector(user_id)
 
         await callback.message.edit_text(
             "✅ <b>Данные успешно сохранены!</b>\n\n"
@@ -234,13 +220,7 @@ async def confirm_collector_data(
     except Exception as e:
         logger.exception(f"Ошибка при сохранении данных коллектора {user_id}: {e}")
         await callback.message.edit_text("❌ Произошла ошибка при сохранении данных")
-        admin_message = (
-            f"❌ Ошибка при назначении пользователя {user.get_initials_name()} "
-            "ответственным за сбор средств"
-        )
 
-    if not is_edit and not admin:
-        callback.bot.send_message(admin.user_id, admin_message)
     await state.clear()
 
 

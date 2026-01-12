@@ -2353,3 +2353,4 @@ Model.model_json_schema()         # → JSON Schema
 
 **Удачи с Pydantic! 🚀**
 
+
