@@ -95,11 +95,20 @@ class UserRepository(BaseRepository[User]):
             logger.info(f"✅ User {user_id} deleted from database")
 
     async def get(self, user_id: int) -> User:
-        """Получить пользователя по ID."""
+        """Получить пользователя по ID с загрузкой связей."""
         user_id = int(user_id)
 
         async with self._session_factory() as session:
-            user = await session.get(User, user_id)
+            query = select(User).where(User.user_id == user_id)
+            query = query.options(
+                selectinload(User.administrator),
+                selectinload(User.collector),
+                selectinload(User.service_user),
+            )
+            
+            result = await session.execute(query)
+            user = result.scalar_one_or_none()
+            
             if not user:
                 raise RecordNotFound(entity=User.__name__, entity_id=user_id)
             return user

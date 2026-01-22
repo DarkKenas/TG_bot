@@ -108,9 +108,11 @@ class CollectorRepository(BaseRepository[Collector]):
         user_id = int(user_id)
 
         async with self._session_factory() as session:
-            # Проверяем существование коллектора
+            # Проверяем существование коллектора с загрузкой пользователя
             result = await session.execute(
-                select(Collector).where(Collector.user_id == user_id)
+                select(Collector)
+                .options(selectinload(Collector.user))
+                .where(Collector.user_id == user_id)
             )
             collector = result.scalar_one_or_none()
 

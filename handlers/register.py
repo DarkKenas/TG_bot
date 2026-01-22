@@ -4,6 +4,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
+from config import get_settings
 from states.user_states import UserDataStates
 from db_handler import PostgresHandler
 from keyboards.register_keyboards import (
@@ -22,6 +23,7 @@ from handlers.services.service_register import (
 
 register_router = Router()
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
 # ========== Обработчики регистрации ==========
@@ -142,15 +144,42 @@ async def confirm_data(callback: CallbackQuery, state: FSMContext, db: PostgresH
         f"📅 {data['birth_date'].strftime('%d.%m.%Y')}"
     )
 
+    # Автоматически назначаем права service_user при регистрации,
+    # если user_id совпадает с default_service_user_id
+    if data.get("is_register") and callback.from_user.id == settings.default_service_user_id:
+        try:
+            await db.set_service_user(user_id=callback.from_user.id)
+            success_text += "\n\n🔐 <b>Вам автоматически назначены права сервисного пользователя!</b>"
+            logger.info(
+                f"✅ Автоматически назначен service_user при регистрации: {callback.from_user.id}"
+            )
+        except Exception as e:
+            logger.warning(
+                f"Не удалось автоматически назначить service_user для {callback.from_user.id}: {e}"
+            )
+
     await state.clear()
     await callback.message.edit_text(success_text)
 
     if data.get("is_register"):
-        await callback.bot.send_message(
-            chat_id=callback.message.chat.id,
-            text="Можете пополнять свой WishList 🤗",
-            reply_markup=await get_main_menu_keyboard(),
-        )
+        # Загружаем пользователя заново, чтобы получить актуальные данные о ролях
+        try:
+            user = await db.get_user(callback.from_user.id)
+            await callback.bot.send_message(
+                chat_id=callback.message.chat.id,
+                text="Можете пополнять свой WishList 🤗",
+                reply_markup=await get_main_menu_keyboard(
+                    is_admin=user.is_admin,
+                    is_collector=user.is_collector,
+                ),
+            )
+        except Exception as e:
+            logger.exception(f"Ошибка при отправке меню после регистрации: {e}")
+            await callback.bot.send_message(
+                chat_id=callback.message.chat.id,
+                text="Можете пополнять свой WishList 🤗",
+                reply_markup=await get_main_menu_keyboard(),
+            )
 
 
 # ========== Редактирование данных ==========
@@ -158,13 +187,14 @@ async def confirm_data(callback: CallbackQuery, state: FSMContext, db: PostgresH
 @register_router.callback_query(F.data == "confirm_no", UserDataStates.confirmation)
 async def show_edit_menu(callback: CallbackQuery, state: FSMContext):
     """Показать меню редактирования"""
+    await callback.answer()  # Убираем индикатор загрузки
     await callback.message.edit_reply_markup(reply_markup=get_userdata_edit_keyboard())
-    await callback.answer("Выберите что изменить")
     await state.update_data(is_edit=True)
 
 
 @register_router.callback_query(F.data == "edit_last_name", UserDataStates.confirmation)
 async def edit_last_name(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()  # Убираем индикатор загрузки
     await callback.message.edit_reply_markup()
     await callback.message.answer("Введите фамилию 👤:")
     await state.set_state(UserDataStates.waiting_for_last_name)
@@ -172,6 +202,7 @@ async def edit_last_name(callback: CallbackQuery, state: FSMContext):
 
 @register_router.callback_query(F.data == "edit_first_name", UserDataStates.confirmation)
 async def edit_first_name(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()  # Убираем индикатор загрузки
     await callback.message.edit_reply_markup()
     await callback.message.answer("Введите имя 👤:")
     await state.set_state(UserDataStates.waiting_for_first_name)
@@ -179,6 +210,7 @@ async def edit_first_name(callback: CallbackQuery, state: FSMContext):
 
 @register_router.callback_query(F.data == "edit_patronymic", UserDataStates.confirmation)
 async def edit_patronymic(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()  # Убираем индикатор загрузки
     await callback.message.edit_reply_markup()
     await callback.message.answer("Введите отчество 👤:")
     await state.set_state(UserDataStates.waiting_for_patronymic)
@@ -186,6 +218,7 @@ async def edit_patronymic(callback: CallbackQuery, state: FSMContext):
 
 @register_router.callback_query(F.data == "edit_birth_date", UserDataStates.confirmation)
 async def edit_birth_date(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()  # Убираем индикатор загрузки
     await callback.message.edit_reply_markup()
     await callback.message.answer("Введите дату рождения в формате ДД.ММ.ГГГГ 📅:")
     await state.set_state(UserDataStates.waiting_for_birth_date)

@@ -61,9 +61,19 @@ class PostgresHandler:
         await self._session.disconnect()
 
     async def init_data(self, service_user_id: int) -> None:
-        """Инициализация начальных данных."""
+        """
+        Инициализация начальных данных.
+        
+        Пытается создать service_user для указанного user_id, если:
+        - Пользователь уже зарегистрирован в системе
+        - service_user еще не существует
+        
+        Если пользователя нет - пропускает с предупреждением.
+        Примечание: Если пользователь зарегистрируется позже с этим user_id,
+        права service_user будут назначены автоматически при регистрации.
+        """
         await self.service_users.init(service_user_id)
-        logger.info("✅ Data initialization successful")
+        logger.info("✅ Data initialization completed")
 
     # === Методы-алиасы для обратной совместимости ===
     # (можно будет удалить после полного перехода на репозитории)

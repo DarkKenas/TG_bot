@@ -2,9 +2,10 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 import logging
+import asyncio
 
 from db_handler import PostgresHandler
-from keyboards.main_menu_keyboards import BUTTON_ADMIN_PANEL
+from keyboards.main_menu_keyboards import BUTTON_ADMIN_PANEL, get_main_menu_keyboard
 from keyboards.admin_keyboards import (
     get_admin_main_keyboard,
     get_confirm_action_keyboard,
@@ -203,6 +204,35 @@ async def confirm_action_callback(
                     f"📱 Телефон: <code>{active_collector.phone_number}</code>\n"
                     f"🏦 Банк: {active_collector.bank_name or 'не указан'}"
                 )
+                # Обновляем меню пользователя, чтобы появилась кнопка панели коллектора
+                try:
+                    # Небольшая задержка, чтобы БД успела обновиться
+                    await asyncio.sleep(0.1)
+                    
+                    updated_user = await db.get_user(target_id)
+                    is_collector = updated_user.is_collector
+                    logger.info(
+                        f"Обновление меню для пользователя {target_id}: "
+                        f"is_admin={updated_user.is_admin}, is_collector={is_collector}, "
+                        f"collector exists={updated_user.collector is not None}"
+                    )
+                    
+                    if not is_collector:
+                        logger.warning(
+                            f"⚠️ Пользователь {target_id} не определяется как коллектор после назначения! "
+                            f"collector={updated_user.collector}"
+                        )
+                    
+                    await callback.bot.send_message(
+                        target_id,
+                        "🔔 Ваше меню обновлено! Теперь доступна панель коллектора 💰",
+                        reply_markup=await get_main_menu_keyboard(
+                            is_admin=updated_user.is_admin,
+                            is_collector=is_collector,
+                        ),
+                    )
+                except Exception as e:
+                    logger.exception(f"Не удалось обновить меню пользователя {target_id}: {e}")
             except RecordNotFound:
                 await callback.bot.send_message(
                     target_id,

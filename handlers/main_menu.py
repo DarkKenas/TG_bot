@@ -40,12 +40,15 @@ async def show_user_data(message: Message, state: FSMContext, user: User):
                 "birth_date": user.birth_date,
             }
         )
+        birth_date_text = (
+            user.birth_date.strftime('%d.%m.%Y') if user.birth_date else "не указана"
+        )
         user_text = (
             f"📋 <b>Ваши данные:</b>\n\n"
             f"Фамилия: <b>{user.last_name}</b>\n"
             f"Имя: <b>{user.first_name}</b>\n"
             f"Отчество: <b>{user.patronymic}</b>\n\n"
-            f"📅 Дата рождения: {user.birth_date.strftime('%d.%m.%Y')}"
+            f"📅 Дата рождения: {birth_date_text}"
         )
 
         await message.answer(user_text, reply_markup=get_edit_user_keyboard())
@@ -118,6 +121,7 @@ async def cancel(message: Message, state: FSMContext):
 @main_menu_router.callback_query(F.data == "edit_user_data")
 async def process_edit_user_data(callback: CallbackQuery, state: FSMContext):
     """Обработка кнопки редактирования данных пользователя"""
+    await callback.answer()  # Убираем индикатор загрузки
     await state.set_state(UserDataStates.confirmation)
     await show_edit_menu(callback, state)
 
@@ -125,6 +129,7 @@ async def process_edit_user_data(callback: CallbackQuery, state: FSMContext):
 @main_menu_router.callback_query(F.data == "edit_wishlist")
 async def process_edit_wishlist(callback: CallbackQuery, state: FSMContext):
     """Обработка кнопки редактирования желания"""
+    await callback.answer()  # Убираем индикатор загрузки
     data = await state.get_data()
     wish_id_list = data.get("wish_list_id")
 
@@ -138,12 +143,12 @@ async def process_edit_wishlist(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_reply_markup(
         reply_markup=get_num_wish_keyboards(wish_id_list)
     )
-    await callback.answer("Выберите какой wish редактировать")
 
 
 @main_menu_router.callback_query(F.data.startswith("select_wish:"))
 async def process_select_wish(callback: CallbackQuery, state: FSMContext):
     """Обработка кнопки выбора wish для редактирования"""
+    await callback.answer()  # Убираем индикатор загрузки
     wish_id = callback.data.split(":")[1]
     await state.update_data(wish_id=wish_id)
     await callback.message.edit_reply_markup(reply_markup=get_edit_wish_keyboard())

@@ -51,8 +51,12 @@ class AdminRepository(BaseRepository[Administrator]):
             logger.info(f"✅ Admin {user_id} deleted from database")
 
     async def get_all(self) -> list[Administrator]:
-        """Получить всех администраторов."""
+        """Получить всех администраторов с загрузкой данных пользователей."""
+        from sqlalchemy.orm import selectinload
+        
         async with self._session_factory() as session:
-            result = await session.execute(select(Administrator))
+            result = await session.execute(
+                select(Administrator).options(selectinload(Administrator.user))
+            )
             return list(result.scalars().all())
 

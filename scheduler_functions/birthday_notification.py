@@ -41,7 +41,8 @@ async def send_birthday_notifications(
     birthday_users = [
         user
         for user in all_users
-        if user.birth_date.month == target_date.month
+        if user.birth_date
+        and user.birth_date.month == target_date.month
         and user.birth_date.day == target_date.day
     ]
 
@@ -50,13 +51,15 @@ async def send_birthday_notifications(
         return
 
     for birthday_user in birthday_users:
-        full_name = " ".join(
-            [
-                birthday_user.last_name,
-                birthday_user.first_name,
-                birthday_user.patronymic,
-            ]
-        )
+        # Безопасное формирование полного имени
+        name_parts = [
+            birthday_user.last_name or "",
+            birthday_user.first_name or "",
+            birthday_user.patronymic or "",
+        ]
+        full_name = " ".join(filter(None, name_parts)).strip()
+        if not full_name:
+            full_name = f"Пользователь {birthday_user.user_id}"
 
         for recipient in all_users:
             if recipient == birthday_user:
@@ -91,8 +94,19 @@ async def send_birthday_notifications(
                     recipient.user_id, message, reply_markup=keyboard
                 )
             except Exception as e:
-                logger.exception(
-                    f"Ошибка отправки напоминания о ДР пользователю {recipient.user_id}: {e}"
-                )
+                # Обработка различных типов ошибок
+                error_msg = str(e).lower()
+                if "blocked" in error_msg or "chat not found" in error_msg:
+                    logger.warning(
+                        f"Пользователь {recipient.user_id} заблокировал бота или чат не найден"
+                    )
+                elif "forbidden" in error_msg:
+                    logger.warning(
+                        f"Нет доступа к пользователю {recipient.user_id}"
+                    )
+                else:
+                    logger.exception(
+                        f"Ошибка отправки напоминания о ДР пользователю {recipient.user_id}: {e}"
+                    )
 
     logger.info(LOG_REMINDERS_SENT.format(count=len(birthday_users), when=when_text))

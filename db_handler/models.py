@@ -8,9 +8,11 @@ from sqlalchemy import (
     DateTime,
     BigInteger,
     Boolean,
+    Numeric,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import DeclarativeMeta, relationship, Mapped
+from typing import List, Optional
 
 Base: DeclarativeMeta = declarative_base()
 
@@ -28,19 +30,19 @@ class User(Base):
     birth_date = Column(Date)
 
     # Связи с другими таблицами
-    wishes: Mapped[list["Wish"]] = relationship("Wish", back_populates="user")
-    administrator: Mapped["Administrator"] = relationship(
-        "Administrator", back_populates="user", lazy="joined"
+    wishes: Mapped[List["Wish"]] = relationship("Wish", back_populates="user")
+    administrator: Mapped[Optional["Administrator"]] = relationship(
+        "Administrator", back_populates="user", lazy="selectin"
     )
-    collector: Mapped["Collector"] = relationship(
-        "Collector", back_populates="user", lazy="joined"
+    collector: Mapped[Optional["Collector"]] = relationship(
+        "Collector", back_populates="user", lazy="selectin"
     )
-    service_user: Mapped["ServiceUser"] = relationship(
-        "ServiceUser", back_populates="user", lazy="joined"
+    service_user: Mapped[Optional["ServiceUser"]] = relationship(
+        "ServiceUser", back_populates="user", lazy="selectin"
     )
-    
+
     # Связь с переводами (отправленные)
-    sent_transfers: Mapped[list["Transfer"]] = relationship(
+    sent_transfers: Mapped[List["Transfer"]] = relationship(
         "Transfer",
         foreign_keys="Transfer.sender_id",
         back_populates="sender",
@@ -49,7 +51,7 @@ class User(Base):
     )
 
     # Связь с переводами (полученные для именинника)
-    received_transfers: Mapped[list["Transfer"]] = relationship(
+    received_transfers: Mapped[List["Transfer"]] = relationship(
         "Transfer",
         foreign_keys="Transfer.birthday_user_id",
         back_populates="birthday_user",
@@ -60,27 +62,40 @@ class User(Base):
     def __repr__(self):
         return f"User(id={self.user_id}, username={self.username})"
 
+    def get_full_name(self):
+        """Получить полное имя (метод для обратной совместимости)"""
+        return f"{self.last_name} {self.first_name} {self.patronymic}"
+
+    def get_initials_name(self):
+        """Получить инициалы (метод для обратной совместимости)"""
+        return f"{self.last_name} {self.first_name[0]}. {self.patronymic[0]}."
+
     @property
     def full_name(self) -> str:
-        return f"{self.last_name} {self.first_name} {self.patronymic}"
+        """Получить полное имя как свойство"""
+        parts = [self.last_name or "", self.first_name or "", self.patronymic or ""]
+        return " ".join(filter(None, parts)).strip() or f"Пользователь {self.user_id}"
 
     @property
     def initials(self) -> str:
-        return f"{self.last_name} {self.first_name[0]}.{self.patronymic[0]}."
+        """Получить инициалы как свойство"""
+        if not self.last_name or not self.first_name or not self.patronymic:
+            return f"Пользователь {self.user_id}"
+        return f"{self.last_name} {self.first_name[0]}. {self.patronymic[0]}."
 
     @property
     def is_admin(self) -> bool:
-        """Является ли пользователь администратором."""
+        """Проверка, является ли пользователь администратором"""
         return self.administrator is not None
 
     @property
     def is_collector(self) -> bool:
-        """Является ли пользователь коллектором."""
+        """Проверка, является ли пользователь коллектором"""
         return self.collector is not None
 
     @property
     def is_service_user(self) -> bool:
-        """Является ли пользователь сервисным."""
+        """Проверка, является ли пользователь сервисным пользователем"""
         return self.service_user is not None
 
 
@@ -117,7 +132,7 @@ class Administrator(Base):
     )
 
     # Связь с пользователем
-    user: Mapped["User"] = relationship("User", lazy="joined", back_populates="administrator")
+    user: Mapped["User"] = relationship("User", back_populates="administrator")
 
     def __repr__(self):
         return f"Administrator(id={self.id}, user_id={self.user_id})"
@@ -145,31 +160,13 @@ class Collector(Base):
     is_active = Column(Boolean, default=False, nullable=False)
 
     # Связь с пользователем
-    user: Mapped["User"] = relationship("User", lazy="joined", back_populates="collector")
+    user: Mapped["User"] = relationship("User", back_populates="collector")
 
     def __repr__(self):
         return (
             f"Collector(id={self.id}, user_id={self.user_id}, active={self.is_active})"
         )
 
-
-class ServiceUser(Base):
-    """Модель сервисного пользователя"""
-    
-    __tablename__ = "service_users"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(
-        Integer,
-        ForeignKey("users.user_id", ondelete="CASCADE"),
-        nullable=False,
-        unique=True,
-    )
-    
-    # Связь с пользователем
-    user: Mapped["User"] = relationship("User", back_populates="service_user")
-    
-    def __repr__(self):
-        return f"ServiceUser(id={self.id}, user_id={self.user_id})"
 
 class Transfer(Base):
     """Модель перевода"""
@@ -184,6 +181,7 @@ class Transfer(Base):
         Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
     )
     transfer_datetime = Column(DateTime, nullable=False)
+    amount = Column(Numeric(10, 2), nullable=False)  # Сумма перевода (до 2 знаков после запятой)
 
     # Связи с пользователями
     sender: Mapped["User"] = relationship(
@@ -194,7 +192,7 @@ class Transfer(Base):
     )
 
     def __repr__(self):
-        return f"Transfer(id={self.id}, sender={self.sender_id}, birthday_user={self.birthday_user_id})"
+        return f"Transfer(id={self.id}, sender={self.sender_id}, birthday_user={self.birthday_user_id}, amount={self.amount})"
 
 
 class Greeting(Base):
@@ -211,3 +209,27 @@ class Greeting(Base):
 
     def __repr__(self):
         return f"Greeting(id={self.id}, sender={self.sender_id}, birthday_user={self.birthday_user_id})"
+
+
+class ServiceUser(Base):
+    """Модель сервисного пользователя
+    
+    В системе может быть только один сервисный пользователь.
+    Это пользователь с максимальными правами для управления системой.
+    """
+
+    __tablename__ = "service_users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+
+    # Связь с пользователем
+    user: Mapped["User"] = relationship("User", back_populates="service_user")
+
+    def __repr__(self):
+        return f"ServiceUser(id={self.id}, user_id={self.user_id})"

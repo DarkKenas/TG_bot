@@ -6,7 +6,7 @@ from aiogram.types import (
 )
 
 BUTTON_MY_WISHES = "🎯 Мой WishList"
-BUTTON_ADD_WISH = "➕ Добавить желание"
+BUTTON_ADD_WISH = "✏ Добавить желание"
 BUTTON_MY_DATA = "👤 Мои данные"
 BUTTON_BIRTHDAYS = "📆 Дни Рождения"
 BUTTON_SERVICE_CHAT = "⚙️ Чат поддержки"

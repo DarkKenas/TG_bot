@@ -5,6 +5,7 @@ from typing import Any
 from aiogram import BaseMiddleware
 from aiogram.types import Message, CallbackQuery
 
+from db_handler import PostgresHandler
 from keyboards.register_keyboards import get_registration_keyboard
 from keyboards.main_menu_keyboards import get_main_menu_keyboard
 from exceptions import RecordNotFound
@@ -37,7 +38,7 @@ class RegistrationMiddleware(BaseMiddleware):
         event: Message | CallbackQuery,
         data: dict[str, Any],
     ) -> Any:
-        db = data["db"]  # Получаем db из DIMiddleware
+        db: PostgresHandler = data["db"]  # Получаем db из DIMiddleware
         user_id = event.from_user.id
 
         # Загружаем пользователя (связи administrator, collector, service_user

@@ -25,15 +25,23 @@ class TransferRepository(BaseRepository[Transfer]):
         sender_id: int,
         birthday_user_id: int,
         transfer_datetime: datetime,
+        amount: float,
     ) -> bool:
         """
         Добавить запись о переводе.
+        
+        Args:
+            sender_id: ID отправителя
+            birthday_user_id: ID именинника
+            transfer_datetime: Дата и время перевода
+            amount: Сумма перевода
         
         Returns:
             True если перевод добавлен, False если уже существует
         """
         sender_id = int(sender_id)
         birthday_user_id = int(birthday_user_id)
+        amount = float(amount)
 
         async with self._session_factory() as session:
             # Проверяем существование пользователей
@@ -63,13 +71,14 @@ class TransferRepository(BaseRepository[Transfer]):
                 sender_id=sender_id,
                 birthday_user_id=birthday_user_id,
                 transfer_datetime=transfer_datetime,
+                amount=amount,
             )
             session.add(transfer)
             await session.commit()
             await session.refresh(transfer)
 
             logger.info(
-                f"✅ Добавлен перевод: {sender_id} -> {birthday_user_id}, ID: {transfer.id}"
+                f"✅ Добавлен перевод: {sender_id} -> {birthday_user_id}, сумма: {amount}, ID: {transfer.id}"
             )
             return True
 

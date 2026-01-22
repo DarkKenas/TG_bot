@@ -21,6 +21,7 @@ class CollectorStates(StatesGroup):
     waiting_for_phone = State()
     waiting_for_bank = State()
     confirmation = State()
+    waiting_for_user_num = State()
 
 
 class AdminStates(StatesGroup):
@@ -39,3 +40,9 @@ class ServiceStates(StatesGroup):
     """Состояния для сервис пользователя"""
     
     waiting_for_delete_admin_num = State()
+
+
+class TransferStates(StatesGroup):
+    """Состояния для ввода суммы перевода"""
+    
+    waiting_for_transfer_amount = State()
