@@ -1,4 +1,5 @@
 from aiogram import Router, F
+from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 import logging
@@ -32,6 +33,7 @@ MSG_ERROR_DELETE_USER = "❌ Ошибка при удалении пользов
 
 
 # =============== Главное меню админ панели ===============
+
 
 @admin_router.message(F.text == BUTTON_ADMIN_PANEL)
 async def show_admin_panel(
@@ -76,6 +78,7 @@ async def show_admin_panel(
 
 # =============== Назначение активного коллектора ===============
 
+
 @admin_router.callback_query(F.data == SET_ACTIVE_COLLECTOR)
 async def set_active_collector(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
@@ -85,7 +88,9 @@ async def set_active_collector(callback: CallbackQuery, state: FSMContext):
 
 
 @admin_router.message(AdminStates.waiting_for_collector_user_num)
-async def process_active_collector(message: Message, state: FSMContext, db: PostgresHandler):
+async def process_active_collector(
+    message: Message, state: FSMContext, db: PostgresHandler
+):
     try:
         user_dict = await get_user_dict_from_state(state)
     except StateDataError as e:
@@ -118,6 +123,7 @@ async def process_active_collector(message: Message, state: FSMContext, db: Post
 
 
 # =============== Удаление пользователя ===============
+
 
 @admin_router.callback_query(F.data == DELETE_USER)
 async def delete_user_start(callback: CallbackQuery, state: FSMContext):
@@ -166,6 +172,7 @@ async def process_delete_user(message: Message, state: FSMContext, db: PostgresH
 
 # =============== Подтверждение действий ===============
 
+
 @admin_router.callback_query(F.data.regexp(r"^confirm_(\w+):(\d+)$"))
 async def confirm_action_callback(
     callback: CallbackQuery, state: FSMContext, db: PostgresHandler
@@ -208,7 +215,7 @@ async def confirm_action_callback(
                 try:
                     # Небольшая задержка, чтобы БД успела обновиться
                     await asyncio.sleep(0.1)
-                    
+
                     updated_user = await db.get_user(target_id)
                     is_collector = updated_user.is_collector
                     logger.info(
@@ -216,23 +223,25 @@ async def confirm_action_callback(
                         f"is_admin={updated_user.is_admin}, is_collector={is_collector}, "
                         f"collector exists={updated_user.collector is not None}"
                     )
-                    
+
                     if not is_collector:
                         logger.warning(
                             f"⚠️ Пользователь {target_id} не определяется как коллектор после назначения! "
                             f"collector={updated_user.collector}"
                         )
-                    
+
                     await callback.bot.send_message(
                         target_id,
-                        "🔔 Ваше меню обновлено! Теперь доступна панель коллектора 💰",
+                        "🔔 Ваше меню обновлено! Теперь доступна 💰Сбор панель",
                         reply_markup=await get_main_menu_keyboard(
                             is_admin=updated_user.is_admin,
                             is_collector=is_collector,
                         ),
                     )
                 except Exception as e:
-                    logger.exception(f"Не удалось обновить меню пользователя {target_id}: {e}")
+                    logger.exception(
+                        f"Не удалось обновить меню пользователя {target_id}: {e}"
+                    )
             except RecordNotFound:
                 await callback.bot.send_message(
                     target_id,
@@ -259,3 +268,145 @@ async def confirm_action_callback(
 async def cancel_action_callback(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("❌ Действие отменено.")
     await state.clear()
+
+
+# =============== Закрепление сообщений ===============
+
+
+@admin_router.message(Command("pin_message"))
+async def pin_message_start(message: Message, state: FSMContext):
+    """Начало процесса закрепления сообщения"""
+    await message.answer(
+        "📌 Введите сообщение, которое нужно закрепить и разослать всем пользователям:"
+    )
+    await state.set_state(AdminStates.waiting_for_pin_message)
+
+
+@admin_router.message(AdminStates.waiting_for_pin_message)
+async def process_pin_message(
+    message: Message, state: FSMContext, db: PostgresHandler
+):
+    """Обработка сообщения для закрепления и рассылки"""
+    try:
+        bot = message.bot
+        # Получаем текст сообщения
+        message_text = message.text or message.caption or ""
+        if not message_text and not message.photo and not message.document:
+            await message.answer("❌ Сообщение не может быть пустым.")
+            return
+
+        # Получаем всех зарегистрированных пользователей
+        users = await db.get_all_users()
+        if not users:
+            await message.answer("❌ Нет зарегистрированных пользователей.")
+            await state.clear()
+            return
+
+        # Рассылаем сообщение всем пользователям
+        success_count = 0
+        failed_count = 0
+        pinned_count = 0
+
+        for user in users:
+            try:
+                # Отправляем сообщение
+                if message.photo:
+                    sent_msg = await bot.send_photo(
+                        chat_id=user.user_id,
+                        photo=message.photo[-1].file_id,
+                        caption=message_text if message_text else None,
+                    )
+                elif message.document:
+                    sent_msg = await bot.send_document(
+                        chat_id=user.user_id,
+                        document=message.document.file_id,
+                        caption=message_text if message_text else None,
+                    )
+                else:
+                    sent_msg = await bot.send_message(
+                        chat_id=user.user_id, text=message_text
+                    )
+
+                # Пытаемся закрепить сообщение (работает только в группах/каналах)
+                # В личных чатах закрепление невозможно через Bot API
+                try:
+                    await bot.pin_chat_message(
+                        chat_id=user.user_id, message_id=sent_msg.message_id
+                    )
+                    pinned_count += 1
+                except Exception:
+                    # Игнорируем ошибки закрепления (например, в личных чатах)
+                    pass
+
+                success_count += 1
+            except Exception as e:
+                failed_count += 1
+                error_msg = str(e).lower()
+                if "blocked" in error_msg or "chat not found" in error_msg:
+                    logger.warning(
+                        f"Пользователь {user.user_id} заблокировал бота или чат не найден"
+                    )
+                elif "forbidden" in error_msg:
+                    logger.warning(f"Нет доступа к пользователю {user.user_id}")
+                else:
+                    logger.exception(
+                        f"Ошибка отправки сообщения пользователю {user.user_id}: {e}"
+                    )
+
+        # Отправляем отчет админу
+        report = (
+            f"✅ Сообщение разослано:\n"
+            f"📤 Успешно отправлено: {success_count}\n"
+            f"❌ Ошибок: {failed_count}\n"
+            f"📌 Закреплено: {pinned_count}"
+        )
+        await message.answer(report)
+        await state.clear()
+
+    except Exception as e:
+        logger.exception(f"Ошибка при рассылке сообщения: {e}")
+        await message.answer("❌ Произошла ошибка при рассылке сообщения.")
+        await state.clear()
+
+
+@admin_router.message(Command("unpin"))
+async def unpin_message(message: Message, db: PostgresHandler):
+    """Открепить все закрепленные сообщения у всех пользователей"""
+    try:
+        bot = message.bot
+        users = await db.get_all_users()
+        if not users:
+            await message.answer("❌ Нет зарегистрированных пользователей.")
+            return
+
+        success_count = 0
+        failed_count = 0
+
+        for user in users:
+            try:
+                await bot.unpin_all_chat_messages(chat_id=user.user_id)
+                success_count += 1
+            except Exception as e:
+                failed_count += 1
+                error_msg = str(e).lower()
+                if "blocked" in error_msg or "chat not found" in error_msg:
+                    logger.warning(
+                        f"Пользователь {user.user_id} заблокировал бота или чат не найден"
+                    )
+                elif "forbidden" in error_msg:
+                    logger.warning(f"Нет доступа к пользователю {user.user_id}")
+                else:
+                    logger.exception(
+                        f"Ошибка открепления сообщений у пользователя {user.user_id}: {e}"
+                    )
+
+        report = (
+            f"✅ Сообщения откреплены:\n"
+            f"📌 Успешно откреплено: {success_count}\n"
+            f"❌ Ошибок: {failed_count}"
+        )
+        await message.answer(report)
+
+    except Exception as e:
+        logger.exception(f"Ошибка при откреплении сообщений: {e}")
+        await message.answer("❌ Произошла ошибка при откреплении сообщений.")

@@ -5,44 +5,64 @@ def get_url_keyboard():
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="Нет URL 🔗", callback_data="url_no"),
+                InlineKeyboardButton(text="Нет ссылки 🔗", callback_data="url_no"),
             ]
         ]
     )
+
+
+def get_my_wishlist_keyboard(has_wishes: bool) -> InlineKeyboardMarkup:
+    """Клавиатура под сообщением 'Мой вишлист'.
+
+    - Всегда: добавить желание
+    - Если есть желания: редактировать вишлист (выбор номера -> действия)
+    """
+    keyboard_buttons: list[list[InlineKeyboardButton]] = [
+        [
+            InlineKeyboardButton(
+                text="➕ Добавить желание", callback_data="add_wish_from_list"
+            )
+        ]
+    ]
+
+    if has_wishes:
+        keyboard_buttons.append(
+            [
+                InlineKeyboardButton(
+                    text="✏️ Редактировать вишлист", callback_data="edit_wishlist"
+                )
+            ]
+        )
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
 
 
 def get_edit_wishdata_keyboard():
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📝 Текст", callback_data="edit_wish_text")],
-            [InlineKeyboardButton(text="🔗 URL", callback_data="edit_wish_url")],
-        ]
-    )
-
-
-def get_edit_wishlist_keyboard():
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="✏️ Редактировать WishList", callback_data="edit_wishlist"
-                )
-            ]
+            [InlineKeyboardButton(text="🔗 Ссылка", callback_data="edit_wish_url")],
         ]
     )
 
 
 def get_edit_wish_keyboard():
+    """Клавиатура с выбором действия для редактирования wish"""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="✏️ Редактировать Wish", callback_data="edit_wish"
+                    text="📝 Изменить текст", callback_data="edit_wish_text_direct"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="❌ Удалить Wish", callback_data="delete_wish"
+                    text="🔗 Изменить ссылку", callback_data="edit_wish_url_direct"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ Удалить желание", callback_data="delete_wish"
                 ),
             ],
         ]

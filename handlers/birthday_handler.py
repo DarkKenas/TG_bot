@@ -1,54 +1,27 @@
-from aiogram import Router, F, Bot
+from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from datetime import datetime
 import logging
 
 from db_handler import PostgresHandler
-from exceptions import RecordNotFound
-from keyboards.birthday_keyboards import get_gift_collection_keyboard
-from keyboards.main_menu_keyboards import get_main_menu_keyboard, BUTTON_BIRTHDAYS
-from db_handler.models import User, Collector
-from states.user_states import TransferStates
+from exceptions import RecordNotFound, StateDataError
+from keyboards.birthday_keyboards import (
+    get_birthdays_keyboard,
+    BIRTHDAYS_WISHLISTS,
+    get_birthday_actions_keyboard,
+)
+from keyboards.wishlist_keyboards import get_url_keyboard
+from keyboards.main_menu_keyboards import BUTTON_BIRTHDAYS
+from db_handler.models import User
+from states.user_states import BirthdayStates, GiftSuggestionStates
+from handlers.services.service_user_list import (
+    get_user_dict_from_state,
+    get_user_id_by_num,
+)
 
 birthday_router = Router()
 logger = logging.getLogger(__name__)
-
-GIFT_COLLECTION_MESSAGE = (
-    "💰 <b>Сбор средств на подарок</b>\n\n"
-    "👤 Собирает: <b>{collector_name}</b>\n"
-    "📱 Перевод по номеру телефона: <code>{phone}</code>\n"
-    "🏦 Банк: <u>{bank_name}</u>\n\n"
-    "📲 Переводите удобным для вас способом"
-)
-
-NO_ACTIVE_COLLECTOR_MESSAGE = (
-    "⚠️ <b>Ответственный за сбор средств не назначен</b>\n"
-    "🔧 Обратитесь к администратору или в техническую поддержку для решения этого вопроса."
-)
-
-TRANSFER_ALREADY_REGISTERED = (
-    "Ваш перевод уже зарегистрирован\n\nСпасибо за участие! 🎁"
-)
-
-TRANSFER_SUCCESS_MESSAGE = (
-    "😇 <b>Спасибо за участие!</b>\n" "✅ Ваш перевод зафиксирован"
-)
-
-NOTIFICATION_MESSAGE = (
-    "💰 <b>Новый перевод на подарок!</b>\n\n"
-    "👤 <b>От:</b> {sender_name}\n"
-    "🎁 <b>Для:</b> {birthday_name}\n"
-    "💵 <b>Сумма:</b> {amount} ₽\n"
-    "⏰ <b>Время:</b> {datetime}"
-)
-
-ASK_AMOUNT_MESSAGE = (
-    "💰 Введите сумму перевода в рублях:\n\n"
-    "Например: 500 или 1000.50"
-)
-
-NOTIFICATION_SENT = "👌 Ответственный за сбор получил уведомление о вашем переводе"
 
 MONTH_NAMES = {
     1: "января",
@@ -66,185 +39,148 @@ MONTH_NAMES = {
 }
 
 
-@birthday_router.callback_query(F.data.startswith("birthday_gift:"))
-async def handle_birthday_gift(
-    callback: CallbackQuery, active_collector: Collector | None
-) -> None:
-    """Обработка кнопки 'Средства на подарок'."""
-    if active_collector is None:
-        await callback.message.edit_text(NO_ACTIVE_COLLECTOR_MESSAGE)
-        return
-    try:
-        birthday_user_id = int(callback.data.split(":")[1])
-        collector_user = active_collector.user
-
-        message = GIFT_COLLECTION_MESSAGE.format(
-            collector_name=collector_user.full_name,
-            phone=active_collector.phone_number,
-            bank_name=active_collector.bank_name or "не указан",
-        )
-
-        keyboard = get_gift_collection_keyboard(birthday_user_id)
-        await callback.message.edit_text(message, reply_markup=keyboard)
-    except Exception as e:
-        logger.exception(f"Ошибка при обработке сбора средств: {e}")
-        await callback.message.edit_text("❌ Произошла ошибка")
-
-
-@birthday_router.callback_query(F.data.startswith("transferred:"))
-async def handle_transferred(
+@birthday_router.callback_query(F.data.startswith("suggest_gift:"))
+async def start_suggest_gift(
     callback: CallbackQuery,
-    user: User,
     state: FSMContext,
     db: PostgresHandler,
 ) -> None:
-    """Обработка кнопки 'Перевел' - запрос суммы перевода."""
+    """Старт предложения подарка: спрашиваем текст предложения."""
     try:
         birthday_user_id = int(callback.data.split(":")[1])
-        birthday_user = await db.get_user(birthday_user_id)
-        sender_id = callback.from_user.id
+    except (IndexError, ValueError):
+        await callback.answer("Некорректные данные", show_alert=True)
+        return
 
-        # Проверяем, не был ли уже зарегистрирован перевод
-        transfers = await db.transfers.get_for_birthday_user(birthday_user_id)
-        existing_transfer = any(
-            t.sender_id == sender_id for t in transfers
+    # Получаем информацию о пользователе, у которого ДР
+    try:
+        birthday_user = await db.get_user(birthday_user_id)
+        if not birthday_user.birth_date:
+            await callback.answer("У пользователя не указана дата рождения", show_alert=True)
+            return
+        
+        # Формируем дату в формате DD.MM
+        date_str = birthday_user.birth_date.strftime("%d.%m")
+        # Получаем полное имя
+        full_name = birthday_user.full_name
+        
+        # Формируем текст сообщения
+        message_text = (
+            f"📅 {date_str} день рождения отмечает {full_name}\n\n"
+            "Опишите в одном собщении ваши предложения по подарку:"
         )
         
-        if existing_transfer:
-            await callback.message.edit_text(TRANSFER_ALREADY_REGISTERED)
-            return
-
-        # Сохраняем данные в state и запрашиваем сумму
-        await state.update_data(
-            birthday_user_id=birthday_user_id,
-            sender_id=sender_id,
-        )
-        await callback.message.edit_text(ASK_AMOUNT_MESSAGE)
-        await state.set_state(TransferStates.waiting_for_transfer_amount)
-
-    except RecordNotFound:
-        await callback.message.edit_text("❌ Пользователь не найден")
+        await state.update_data(birthday_user_id=birthday_user_id)
+        # Отправляем новое сообщение, не редактируя старое (кнопка остается)
+        await callback.message.answer(message_text)
+        await state.set_state(GiftSuggestionStates.waiting_for_gift_text)
+        await callback.answer()
     except Exception as e:
-        logger.exception(f"Ошибка при обработке перевода: {e}")
-        await callback.message.edit_text("❌ Произошла ошибка при обработке перевода")
+        logger.exception(f"Ошибка при получении данных пользователя для предложения подарка: {e}")
+        await callback.answer("Ошибка при загрузке данных", show_alert=True)
 
 
-@birthday_router.message(TransferStates.waiting_for_transfer_amount)
-async def process_transfer_amount(
-    message: Message,
-    user: User,
+@birthday_router.message(GiftSuggestionStates.waiting_for_gift_text)
+async def process_gift_text(message: Message, state: FSMContext):
+    """Обработка текста предложения подарка."""
+    text = message.text.strip()
+    if len(text) < 3:
+        await message.answer(
+            "❌ Текст должен быть не короче 3 символов. Попробуйте ещё раз."
+        )
+        return
+
+    await state.update_data(gift_text=text)
+    await message.answer(
+        "Теперь добавьте ссылку на этот подарок 🔗\n\n"
+        "Если ссылки нет, нажмите «Нет ссылки 🔗».",
+        reply_markup=get_url_keyboard(),
+    )
+    await state.set_state(GiftSuggestionStates.waiting_for_gift_url)
+
+
+@birthday_router.callback_query(
+    F.data == "url_no", GiftSuggestionStates.waiting_for_gift_url
+)
+async def process_gift_url_no(
+    callback: CallbackQuery,
     state: FSMContext,
-    active_collector: Collector | None,
     db: PostgresHandler,
 ) -> None:
-    """Обработка введенной суммы перевода."""
+    """Обработка варианта без ссылки для предложения подарка."""
+    data = await state.get_data()
+    birthday_user_id = data.get("birthday_user_id")
+    gift_text = data.get("gift_text")
+
+    if not birthday_user_id or not gift_text:
+        await callback.message.edit_text("❌ Данные сессии устарели. Начните заново.")
+        await state.clear()
+        await callback.answer()
+        return
+
     try:
-        # Парсим сумму
-        try:
-            amount = float(message.text.replace(",", ".").strip())
-            if amount <= 0:
-                await message.answer("❌ Сумма должна быть больше нуля. Введите сумму еще раз:")
-                return
-        except ValueError:
-            await message.answer("❌ Неверный формат суммы. Введите число, например: 500 или 1000.50")
-            return
-
-        data = await state.get_data()
-        birthday_user_id = data.get("birthday_user_id")
-        sender_id = data.get("sender_id", message.from_user.id)
-
-        if not birthday_user_id:
-            await message.answer("❌ Ошибка: данные сессии устарели. Начните заново.")
-            await state.clear()
-            return
-
-        birthday_user = await db.get_user(birthday_user_id)
-
-        # Создаем перевод
-        transfer_added = await db.add_transfer(
-            sender_id=sender_id,
+        await db.add_transfer(
+            sender_id=callback.from_user.id,
             birthday_user_id=birthday_user_id,
             transfer_datetime=datetime.now(),
-            amount=amount,
+            amount=0,  # поле не используется, но оставлено в БД
+            gift_text=gift_text,
+            gift_url=None,
         )
-
-        if not transfer_added:
-            await message.answer(TRANSFER_ALREADY_REGISTERED)
-            await state.clear()
-            return
-
-        sender_name = user.full_name
-        birthday_name = birthday_user.full_name
-
-        # Отправляем уведомление коллектору
-        is_sent = await send_notification_to_collector(
-            message.bot, sender_name, birthday_name, datetime.now(), amount, active_collector
-        )
-
-        if not is_sent:
-            logger.warning(
-                f"Не удалось отправить уведомление о переводе: {sender_id} -> {birthday_user_id}"
-            )
-            await message.answer(
-                "❌ Ошибка при отправке уведомления ответственному за сбор"
-            )
-            await state.clear()
-            return
-
-        await message.answer(
-            f"{TRANSFER_SUCCESS_MESSAGE}\n\n"
-            f"💵 Сумма: <b>{amount:.2f} ₽</b>",
-            reply_markup=await get_main_menu_keyboard(
-                is_admin=user.is_admin,
-                is_collector=user.is_collector,
-            ),
-        )
-        logger.info(f"✅ Перевод зафиксирован: {sender_name} -> {birthday_name}, сумма: {amount} ₽")
-        await state.clear()
-
-    except RecordNotFound:
-        await message.answer("❌ Пользователь не найден")
+        await callback.message.edit_text("✅ Ваше предложение подарка сохранено.")
         await state.clear()
     except Exception as e:
-        logger.exception(f"Ошибка при обработке перевода: {e}")
-        await message.answer("❌ Произошла ошибка при обработке перевода")
+        logger.exception(f"Ошибка при сохранении предложения подарка: {e}")
+        await callback.message.edit_text(
+            "❌ Произошла ошибка при сохранении предложения."
+        )
         await state.clear()
+    finally:
+        await callback.answer()
 
 
-async def send_notification_to_collector(
-    bot: Bot,
-    sender_name: str,
-    birthday_name: str,
-    datetime_obj: datetime,
-    amount: float,
-    active_collector: Collector | None,
-) -> bool:
-    """Отправка уведомления коллектору о переводе."""
+@birthday_router.message(GiftSuggestionStates.waiting_for_gift_url)
+async def process_gift_url(
+    message: Message,
+    state: FSMContext,
+    db: PostgresHandler,
+) -> None:
+    """Обработка ссылки для предложения подарка."""
+    url = message.text.strip()
+
+    data = await state.get_data()
+    birthday_user_id = data.get("birthday_user_id")
+    gift_text = data.get("gift_text")
+
+    if not birthday_user_id or not gift_text:
+        await message.answer("❌ Данные сессии устарели. Начните заново.")
+        await state.clear()
+        return
+
+    # Валидацию ссылки делаем через already used фильтр/функцию, если нужно,
+    # но чтобы не дублировать логику, можно использовать is_valid_url из filters.valid
+    from filters.valid import is_valid_url
+
+    is_valid, answer = is_valid_url(url)
+    if not is_valid:
+        await message.answer(answer)
+        return
+
     try:
-        if active_collector is None:
-            logger.warning(
-                f"Не найден активный коллектор при отправке уведомления о переводе от {sender_name}"
-            )
-            return False
-        collector_user_id = active_collector.user_id
-
-        notification_message = NOTIFICATION_MESSAGE.format(
-            sender_name=sender_name,
-            birthday_name=birthday_name,
-            amount=f"{amount:.2f}",
-            datetime=datetime_obj.strftime("%d.%m.%Y %H:%M:%S"),
+        await db.add_transfer(
+            sender_id=message.from_user.id,
+            birthday_user_id=birthday_user_id,
+            transfer_datetime=datetime.now(),
+            amount=0,
+            gift_text=gift_text,
+            gift_url=url,
         )
-
-        await bot.send_message(collector_user_id, notification_message)
-
-        logger.info(
-            f"✅ Уведомление от {sender_name} отправлено коллектору "
-            f"{active_collector.user.initials}, сумма: {amount} ₽"
-        )
-        return True
+        await message.answer("✅ Ваше предложение подарка сохранено.")
+        await state.clear()
     except Exception as e:
-        logger.exception(f"❌ Ошибка при отправке уведомления коллектору: {e}")
-        return False
+        logger.exception(f"Ошибка при сохранении предложения подарка: {e}")
+        await message.answer("❌ Произошла ошибка при сохранении предложения.")
+        await state.clear()
 
 
 @birthday_router.message(F.text == BUTTON_BIRTHDAYS)
@@ -280,18 +216,120 @@ async def show_upcoming_birthdays(message: Message, db: PostgresHandler):
 
     response = "🎂 <b>Дни рождения</b>\n\n"
 
-    response += "📅 <b>Предстоящие:</b>\n\n"
+    response += "📅 <b>Предстоящие:</b>\n"
     if upcoming:
+        last_month = None
         for user in upcoming:
-            if user.birth_date:
-                date = f"{user.birth_date.day} {MONTH_NAMES[user.birth_date.month]}"
-                response += f"{date} - {user.initials}\n"
+            if not user.birth_date:
+                continue
+            month = user.birth_date.month
+            # Пустая строка при смене месяца (кроме самого первого)
+            if last_month is not None and month != last_month:
+                response += "\n"
+            last_month = month
+
+            date = f"{user.birth_date.day} {MONTH_NAMES[month]}"
+            response += f"{date} - {user.initials}\n"
 
     if past:
-        response += "\n📆 <b>Прошедшие:</b>\n\n"
+        response += "\n📆 <b>Прошедшие:</b>\n"
         for user in past:
-            if user.birth_date:
-                date = f"{user.birth_date.day} {MONTH_NAMES[user.birth_date.month]}"
-                response += f"{date} - {user.initials}\n"
+            if not user.birth_date:
+                continue
+            month = user.birth_date.month
+            date = f"{user.birth_date.day} {MONTH_NAMES[month]}"
+            response += f"{date} - {user.initials}\n"
 
-    await message.answer(response)
+    await message.answer(response, reply_markup=get_birthdays_keyboard())
+
+
+@birthday_router.callback_query(F.data == BIRTHDAYS_WISHLISTS)
+async def show_users_list_for_wishlist_from_birthdays(
+    callback: CallbackQuery,
+    state: FSMContext,
+    db: PostgresHandler,
+):
+    """Показать список пользователей для выбора вишлиста (через 'Дни рождения')."""
+    try:
+        users = await db.get_all_users()
+        if not users:
+            await callback.message.edit_text("📋 <b>Список пользователей пуст</b>")
+            await callback.answer()
+            return
+
+        users.sort(key=lambda user: user.last_name or "")
+        users_text = "👥❤️ <b>Список пользователей:</b>\n\n"
+
+        user_dict: dict[int, int] = {}
+        for num, user_item in enumerate(users, 1):
+            users_text += f"  {num}. {user_item.full_name}\n"
+            user_dict[num] = user_item.user_id
+
+        await state.update_data(user_dict=user_dict)
+
+        await callback.message.edit_text(
+            users_text
+            + "\nВведите номер пользователя, вишлист которого хотите посмотреть:"
+        )
+        await state.set_state(BirthdayStates.waiting_for_wishlist_user_num)
+        await callback.answer()
+
+    except Exception as e:
+        logger.exception(f"Ошибка при создании списка пользователей: {e}")
+        await callback.message.edit_text("❌ Ошибка при загрузке списка пользователей")
+        await state.clear()
+
+
+@birthday_router.message(BirthdayStates.waiting_for_wishlist_user_num)
+async def show_user_wishlist_from_birthdays(
+    message: Message,
+    state: FSMContext,
+    db: PostgresHandler,
+):
+    """Показать вишлист выбранного пользователя (через 'Дни рождения')."""
+    try:
+        user_dict = await get_user_dict_from_state(state)
+    except StateDataError as e:
+        logger.exception(e)
+        await message.answer("❌ Сессия устарела. Начните заново.")
+        await state.clear()
+        return
+
+    try:
+        user_id = get_user_id_by_num(user_dict, message.text.strip())
+        wish_list = await db.get_wish_list(user_id)
+        user = await db.get_user(user_id)
+
+        if not wish_list:
+            await message.answer(
+                f"❤️ Вишлист пользователя <b>{user.full_name}</b> пуст.\n\n"
+                "Введите другой номер или нажмите кнопку «⭕ Остановить ввод»."
+            )
+            return
+
+        wishlist_text = f"❤️ <b>Вишлист {user.full_name}:</b>\n\n"
+
+        for i, wish in enumerate(wish_list, 1):
+            if wish.wish_url:
+                wishlist_text += (
+                    f"{i}. <a href='{wish.wish_url}'>{wish.wish_text}</a>\n"
+                )
+            else:
+                wishlist_text += f"{i}. {wish.wish_text}\n"
+
+        await message.answer(
+            wishlist_text
+            + "\nВведите другой номер или нажмите кнопку «⭕ Остановить ввод».",
+            disable_web_page_preview=True,
+        )
+
+    except ValueError:
+        await message.answer(
+            "❌ Неверный номер. Введите номер пользователя из списка "
+            "или нажмите кнопку «⭕ Остановить ввод»."
+        )
+        return
+    except Exception as e:
+        logger.exception(f"Ошибка при получении вишлиста: {e}")
+        await message.answer("❌ Произошла ошибка при загрузке вишлиста")
+        await state.clear()

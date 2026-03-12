@@ -182,6 +182,8 @@ class Transfer(Base):
     )
     transfer_datetime = Column(DateTime, nullable=False)
     amount = Column(Numeric(10, 2), nullable=False)  # Сумма перевода (до 2 знаков после запятой)
+    gift_text = Column(Text, nullable=True)  # Текст предложения подарка
+    gift_url = Column(Text, nullable=True)  # Ссылка предложения подарка
 
     # Связи с пользователями
     sender: Mapped["User"] = relationship(

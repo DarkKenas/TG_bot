@@ -1,55 +1,44 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # Константы для текстов кнопок
-BUTTON_SEND_MONEY = "💰 Скинуться на подарок"
-BUTTON_TRANSFERRED = "✅ Перевел"
+BUTTON_SUGGEST_GIFT = "🎁 Предложить вариант подарка"
+BUTTON_WISHLISTS = "👥❤️ Вишлисты"
+
+# callback для просмотра вишлистов из раздела дней рождений
+BIRTHDAYS_WISHLISTS = "birthdays_wishlists"
 
 
 def get_birthday_actions_keyboard(user_id: int) -> InlineKeyboardMarkup:
     """Клавиатура с действиями для дня рождения.
-    
+
     Содержит кнопки:
-    - Скинуться на подарок
-    
-    Args:
-        user_id: ID пользователя-именинника
-        
-    Returns:
-        InlineKeyboardMarkup: Клавиатура с кнопками действий
+    - Предложить подарок
     """
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=BUTTON_SEND_MONEY,
-                    callback_data=f"birthday_gift:{user_id}",
+                    text=BUTTON_SUGGEST_GIFT,
+                    callback_data=f"suggest_gift:{user_id}",
                 )
             ],
         ]
     )
 
 
-def get_gift_collection_keyboard(user_id: int) -> InlineKeyboardMarkup:
-    """Клавиатура для сбора средств на подарок.
-    
-    Содержит кнопки:
-    - Подтверждение перевода
-    
-    Args:
-        user_id: ID пользователя-именинника
-        
-    Returns:
-        InlineKeyboardMarkup: Клавиатура с кнопками для сбора средств
+def get_birthdays_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура под списком дней рождений.
+
+    Содержит кнопку:
+    - Вишлисты (просмотр вишлистов людей)
     """
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=BUTTON_TRANSFERRED,
-                    callback_data=f"transferred:{user_id}"
+                    text=BUTTON_WISHLISTS,
+                    callback_data=BIRTHDAYS_WISHLISTS,
                 )
-            ],
+            ]
         ]
     )
-
-

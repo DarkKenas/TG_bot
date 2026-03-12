@@ -26,18 +26,22 @@ class TransferRepository(BaseRepository[Transfer]):
         birthday_user_id: int,
         transfer_datetime: datetime,
         amount: float,
+        gift_text: str | None = None,
+        gift_url: str | None = None,
     ) -> bool:
         """
-        Добавить запись о переводе.
+        Добавить запись о предложении подарка.
         
         Args:
             sender_id: ID отправителя
             birthday_user_id: ID именинника
-            transfer_datetime: Дата и время перевода
-            amount: Сумма перевода
+            transfer_datetime: Дата и время предложения
+            amount: Сумма перевода (не используется, но оставлено для совместимости)
+            gift_text: Текст предложения подарка (опционально)
+            gift_url: Ссылка предложения подарка (опционально)
         
         Returns:
-            True если перевод добавлен, False если уже существует
+            True если предложение добавлено
         """
         sender_id = int(sender_id)
         birthday_user_id = int(birthday_user_id)
@@ -53,32 +57,21 @@ class TransferRepository(BaseRepository[Transfer]):
             if not birthday_user:
                 raise RecordNotFound(entity=User.__name__, entity_id=birthday_user_id)
 
-            # Проверяем, не было ли уже перевода
-            existing = await session.execute(
-                select(Transfer).where(
-                    Transfer.sender_id == sender_id,
-                    Transfer.birthday_user_id == birthday_user_id,
-                )
-            )
-
-            if existing.scalar_one_or_none():
-                logger.warning(
-                    f"Перевод уже существует: {sender_id} -> {birthday_user_id}"
-                )
-                return False
-
+            # Создаем новое предложение подарка (можно создавать несколько для одного именинника)
             transfer = Transfer(
                 sender_id=sender_id,
                 birthday_user_id=birthday_user_id,
                 transfer_datetime=transfer_datetime,
                 amount=amount,
+                gift_text=gift_text,
+                gift_url=gift_url,
             )
             session.add(transfer)
             await session.commit()
             await session.refresh(transfer)
 
             logger.info(
-                f"✅ Добавлен перевод: {sender_id} -> {birthday_user_id}, сумма: {amount}, ID: {transfer.id}"
+                f"✅ Добавлено предложение подарка: {sender_id} -> {birthday_user_id}, ID: {transfer.id}"
             )
             return True
 

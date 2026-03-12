@@ -15,13 +15,25 @@ class WishStates(StatesGroup):
     confirmation = State()
 
 
+class GiftSuggestionStates(StatesGroup):
+    """Состояния для предложения подарка к дню рождения."""
+
+    waiting_for_gift_text = State()
+    waiting_for_gift_url = State()
+
+
+class BirthdayStates(StatesGroup):
+    """Состояния для работы с днями рождения (просмотр вишлистов)."""
+
+    waiting_for_wishlist_user_num = State()
+
+
 class CollectorStates(StatesGroup):
     """Состояния для регистрации/обновления коллектора"""
 
     waiting_for_phone = State()
     waiting_for_bank = State()
     confirmation = State()
-    waiting_for_user_num = State()
 
 
 class AdminStates(StatesGroup):
@@ -29,6 +41,7 @@ class AdminStates(StatesGroup):
 
     waiting_for_delete_user_num = State()
     waiting_for_collector_user_num = State()
+    waiting_for_pin_message = State()
 
 class RoleStates(StatesGroup):
     """Состояния назначения ролей"""
@@ -40,9 +53,3 @@ class ServiceStates(StatesGroup):
     """Состояния для сервис пользователя"""
     
     waiting_for_delete_admin_num = State()
-
-
-class TransferStates(StatesGroup):
-    """Состояния для ввода суммы перевода"""
-    
-    waiting_for_transfer_amount = State()

@@ -4,7 +4,6 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 UPDATE_COLLECTOR_DATA = "update_collector_data"
 CREATE_COLLECTOR_DATA = "create_collector_data"
 VIEW_ALL_TRANSFERS = "view_all_transfers"
-VIEW_WISHLISTS = "view_wishlists"
 
 # Константы для редактирования данных коллектора
 EDIT_COLLECTOR_PHONE = "edit_collector_phone"
@@ -14,7 +13,7 @@ SKIP_COLLECTOR_BANK = "skip_collector_bank"
 
 def get_collector_menu_keyboard(is_active: bool = False) -> InlineKeyboardMarkup:
     """Клавиатура панели коллектора
-
+    
     Args:
         is_active: True если коллектор активный (может видеть все переводы)
     """
@@ -26,24 +25,15 @@ def get_collector_menu_keyboard(is_active: bool = False) -> InlineKeyboardMarkup
         ]
     ]
 
-    # Кнопка просмотра переводов доступна только активному коллектору
+    # Кнопка просмотра предложений подарков доступна только активному коллектору
     if is_active:
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text="📋 Посмотреть все переводы", callback_data=VIEW_ALL_TRANSFERS
+                    text="📋 Предложения подарков", callback_data=VIEW_ALL_TRANSFERS
                 )
             ]
         )
-
-    # Кнопка Wishlists доступна всем коллекторам
-    keyboard.append(
-        [
-            InlineKeyboardButton(
-                text="👥🎯 Wishlists", callback_data=VIEW_WISHLISTS
-            )
-        ]
-    )
 
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 

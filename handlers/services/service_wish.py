@@ -12,11 +12,11 @@ MAX_URL_LENGTH = 2000
 
 async def handle_wish_text(message: Message, state: FSMContext) -> bool:
     """Универсальная обработка текста желания.
-    
+
     Args:
         message: Сообщение от пользователя с текстом желания
         state: Состояние FSM для сохранения данных
-        
+
     Returns:
         bool: True если текст валидный и сохранен, False если есть ошибки
     """
@@ -37,11 +37,11 @@ async def handle_wish_text(message: Message, state: FSMContext) -> bool:
 
 async def handle_wish_url(message: Message, state: FSMContext) -> bool:
     """Универсальная обработка URL желания.
-    
+
     Args:
         message: Сообщение от пользователя с URL
         state: Состояние FSM для сохранения данных
-        
+
     Returns:
         bool: True если URL валидный и сохранен, False если есть ошибки
     """
@@ -65,20 +65,22 @@ async def handle_wish_url(message: Message, state: FSMContext) -> bool:
     return True
 
 
-async def handle_wish_confirmation(event: Message | CallbackQuery, state: FSMContext) -> None:
+async def handle_wish_confirmation(
+    event: Message | CallbackQuery, state: FSMContext
+) -> None:
     """Показать данные желания для подтверждения.
-    
+
     Args:
         event: Сообщение или колбэк от пользователя
         state: Состояние FSM для получения данных
     """
     data = await state.get_data()
-    confirmation_text = f"🎯 <b>Проверьте ваше желание:</b>\n\n"
+    confirmation_text = f"❤️ <b>Проверьте ваше желание:</b>\n\n"
     if data.get("wish_url"):
         confirmation_text += f"<a href='{data['wish_url']}'>{data['wish_text']}</a>"
     else:
         confirmation_text += f"{data['wish_text']}"
-    
+
     if isinstance(event, Message):
         await event.answer(
             confirmation_text,

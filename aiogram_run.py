@@ -17,6 +17,7 @@ from middlewares import (
     RequireServiceUser,
 )
 from scheduler_functions.birthday_notification import send_birthday_notifications
+from scheduler_functions.assign_backup_collector import assign_backup_collector
 
 logger = logging.getLogger(__name__)
 
@@ -51,12 +52,32 @@ async def main():
         await pg_db.init_data(default_service_user_id)
 
         scheduler.add_job(
-            send_birthday_notifications, "cron", hour=21, minute=8, args=(bot, 7, pg_db)
+            send_birthday_notifications,
+            "cron",
+            hour=16,
+            minute=23,
+            args=(bot, 7, pg_db),
         )
         scheduler.add_job(
-            send_birthday_notifications, "cron", hour=21, minute=8, args=(bot, 1, pg_db)
+            send_birthday_notifications,
+            "cron",
+            hour=16,
+            minute=23,
+            args=(bot, 1, pg_db),
         )
         scheduler.add_job(pg_db.clear_past_birthday_records, "cron", hour=0, minute=0)
+
+        # Автоматическое назначение запасного коллектора 24 февраля в 9:00
+        scheduler.add_job(
+            assign_backup_collector,
+            "cron",
+            month=2,
+            day=24,
+            hour=9,
+            minute=0,
+            args=(bot, pg_db),
+        )
+
         scheduler.start()
 
         # Глобальные middleware (порядок важен: DI → Registration → Role)

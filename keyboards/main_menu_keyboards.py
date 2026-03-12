@@ -5,10 +5,9 @@ from aiogram.types import (
     InlineKeyboardButton,
 )
 
-BUTTON_MY_WISHES = "🎯 Мой WishList"
-BUTTON_ADD_WISH = "✏ Добавить желание"
+BUTTON_MY_WISHES = "❤️ Мой вишлист"
 BUTTON_MY_DATA = "👤 Мои данные"
-BUTTON_BIRTHDAYS = "📆 Дни Рождения"
+BUTTON_BIRTHDAYS = "📆 Дни рождения"
 BUTTON_SERVICE_CHAT = "⚙️ Чат поддержки"
 BUTTON_CANCEL = "⭕ Остановить ввод"
 BUTTON_ADMIN_PANEL = "🔐 Админ панель"
@@ -22,10 +21,9 @@ async def get_main_menu_keyboard(
     keyboard = [
         [
             KeyboardButton(text=BUTTON_MY_WISHES),
-            KeyboardButton(text=BUTTON_ADD_WISH),
+            KeyboardButton(text=BUTTON_MY_DATA),
         ],
         [
-            KeyboardButton(text=BUTTON_MY_DATA),
             KeyboardButton(text=BUTTON_BIRTHDAYS),
         ],
         [
@@ -58,7 +56,7 @@ async def get_service_chat_keyboard(service_user_id: int):
             [
                 InlineKeyboardButton(
                     text="💬 Написать",
-                    url=f"https://web.telegram.org/a/#{service_user_id}",
+                    url=f"tg://user?id={service_user_id}",
                 )
             ]
         ]

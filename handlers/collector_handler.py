@@ -13,13 +13,10 @@ from keyboards.collector_keyboards import (
     UPDATE_COLLECTOR_DATA,
     CREATE_COLLECTOR_DATA,
     VIEW_ALL_TRANSFERS,
-    VIEW_WISHLISTS,
     EDIT_COLLECTOR_PHONE,
     EDIT_COLLECTOR_BANK,
     SKIP_COLLECTOR_BANK,
 )
-from exceptions import StateDataError
-from handlers.services.service_user_list import get_user_dict_from_state, get_user_id_by_num
 from db_handler.models import Transfer, User
 from states.user_states import CollectorStates
 from handlers.services.service_collector import (
@@ -83,7 +80,7 @@ async def create_collector_data(callback: CallbackQuery, state: FSMContext):
 
 @collector_router.callback_query(F.data == VIEW_ALL_TRANSFERS)
 async def view_all_transfers(callback: CallbackQuery, user: User, db: PostgresHandler):
-    """Просмотр всех переводов (только для активного коллектора)"""
+    """Просмотр предложений подарков (только для активного коллектора)."""
     collector = user.collector
     if not collector:
         await callback.answer("❌ У вас нет доступа к этой функции", show_alert=True)
@@ -98,11 +95,14 @@ async def view_all_transfers(callback: CallbackQuery, user: User, db: PostgresHa
     try:
         transfers = await db.get_all_transfers()
 
+        # Оставляем только записи с предложениями подарков
+        transfers = [t for t in transfers if t.gift_text or t.gift_url]
+
         if not transfers:
-            await callback.message.edit_text("📋 <b>Список переводов пуст</b>")
+            await callback.message.edit_text("📋 <b>Предложений подарков пока нет</b>")
             return
 
-        # Группируем переводы по именинникам
+        # Группируем предложения по именинникам
         grouped_transfers: dict[int, list[Transfer]] = {}
         for transfer in transfers:
             birthday_user_id = transfer.birthday_user_id
@@ -111,24 +111,24 @@ async def view_all_transfers(callback: CallbackQuery, user: User, db: PostgresHa
             grouped_transfers[birthday_user_id].append(transfer)
 
         # Формируем текст отчета
-        report_lines = ["📋 <b>Отчет по переводам:</b>\n"]
+        report_lines = ["📋 <b>Предложения подарков:</b>\n"]
 
         for birthday_user_id, user_transfers in grouped_transfers.items():
             birthday_user = user_transfers[0].birthday_user
-            birthday_total = sum(float(transfer.amount) for transfer in user_transfers)
-
             report_lines.append(f"\n🎂 <b>{birthday_user.full_name}</b>:\n")
 
             for transfer in user_transfers:
-                amount = float(transfer.amount)
-                report_lines.append(
-                    f"  💰 {transfer.sender.initials} - {amount:.2f} ₽\n"
-                )
-            
-            report_lines.append(f"  <b>Итого для {birthday_user.initials}: {birthday_total:.2f} ₽</b>\n")
+                sender = transfer.sender
+                text = transfer.gift_text or "Без описания"
+                if transfer.gift_url:
+                    report_lines.append(
+                        f"  🎁 {sender.initials}: <a href='{transfer.gift_url}'>{text}</a>\n"
+                    )
+                else:
+                    report_lines.append(f"  🎁 {sender.initials}: {text}\n")
 
         report_text = "".join(report_lines)
-        await callback.message.edit_text(report_text)
+        await callback.message.edit_text(report_text, disable_web_page_preview=True)
 
     except Exception as e:
         logger.exception(
@@ -139,96 +139,8 @@ async def view_all_transfers(callback: CallbackQuery, user: User, db: PostgresHa
         )
 
 
-# =============== Просмотр вишлистов пользователей ===============
-
-@collector_router.callback_query(F.data == VIEW_WISHLISTS)
-async def show_users_list_for_wishlist(
-    callback: CallbackQuery, user: User, state: FSMContext, db: PostgresHandler
-):
-    """Показать список всех пользователей для выбора вишлиста"""
-    collector = user.collector
-    if not collector:
-        await callback.answer("❌ У вас нет доступа к этой функции", show_alert=True)
-        return
-
-    try:
-        users = await db.get_all_users()
-        if not users:
-            await callback.message.edit_text("📋 <b>Список пользователей пуст</b>")
-            return
-
-        users.sort(key=lambda user: user.last_name or "")
-        users_text = "👥🎯 <b>Список пользователей:</b>\n\n"
-
-        user_dict = {}
-        for num, user_item in enumerate(users, 1):
-            users_text += f"  {num}. {user_item.full_name}\n"
-            user_dict[num] = user_item.user_id
-
-        await state.update_data(user_dict=user_dict)
-
-        await callback.message.edit_text(
-            users_text + "\nВведите номер пользователя, вишлист которого хотите посмотреть:"
-        )
-        await state.set_state(CollectorStates.waiting_for_user_num)
-        await callback.answer()
-
-    except Exception as e:
-        logger.exception(f"Ошибка при создании списка пользователей: {e}")
-        await callback.message.edit_text("❌ Ошибка при загрузке списка пользователей")
-
-
-@collector_router.message(CollectorStates.waiting_for_user_num)
-async def show_user_wishlist(
-    message: Message, state: FSMContext, db: PostgresHandler
-):
-    """Показать вишлист выбранного пользователя"""
-    try:
-        user_dict = await get_user_dict_from_state(state)
-    except StateDataError as e:
-        logger.exception(e)
-        await message.answer("❌ Сессия устарела. Начните заново.")
-        await state.clear()
-        return
-
-    try:
-        user_id = get_user_id_by_num(user_dict, message.text.strip())
-        wish_list = await db.get_wish_list(user_id)
-        user = await db.get_user(user_id)
-
-        if not wish_list:
-            await message.answer(
-                f"🎯 Вишлист пользователя <b>{user.full_name}</b> пуст."
-            )
-            await state.clear()
-            return
-
-        wishlist_text = f"🎯 <b>Вишлист {user.full_name}:</b>\n\n"
-
-        for i, wish in enumerate(wish_list, 1):
-            if wish.wish_url:
-                wishlist_text += f"{i}. <a href='{wish.wish_url}'>{wish.wish_text}</a>\n"
-            else:
-                wishlist_text += f"{i}. {wish.wish_text}\n"
-
-        await message.answer(
-            wishlist_text,
-            disable_web_page_preview=True,
-        )
-        await state.clear()
-
-    except ValueError:
-        await message.answer(
-            f"❌ Неверный номер. Введите число из списка:\n{', '.join(map(str, user_dict.keys()))}"
-        )
-        return
-    except Exception as e:
-        logger.exception(f"Ошибка при получении вишлиста: {e}")
-        await message.answer("❌ Произошла ошибка при загрузке вишлиста")
-        await state.clear()
-
-
 # =============== Обработчики редактирования данных коллектора ===============
+
 
 @collector_router.callback_query(F.data == EDIT_COLLECTOR_PHONE)
 async def edit_collector_phone(callback: CallbackQuery, state: FSMContext):
@@ -257,6 +169,7 @@ async def skip_collector_bank(callback: CallbackQuery, state: FSMContext):
 
 
 # =============== Обработчики состояний FSM ===============
+
 
 @collector_router.message(CollectorStates.waiting_for_phone)
 async def process_collector_phone(message: Message, state: FSMContext):
@@ -306,7 +219,7 @@ async def confirm_collector_data(
                 bank_name=data.get("bank_name"),
             )
             active_collector = await db.set_active_collector(user_id)
-            
+
             # Отправляем уведомление всем админам о новом активном коллекторе
             try:
                 admins = await db.get_all_administrators()
@@ -317,7 +230,7 @@ async def confirm_collector_data(
                     f"📱 <b>Телефон:</b> <code>{active_collector.phone_number}</code>\n"
                     f"🏦 <b>Банк:</b> {active_collector.bank_name or 'не указан'}"
                 )
-                
+
                 for admin in admins:
                     try:
                         await callback.bot.send_message(
@@ -350,7 +263,7 @@ async def confirm_collector_data(
         try:
             # Небольшая задержка, чтобы БД успела обновиться
             await asyncio.sleep(0.1)
-            
+
             updated_user = await db.get_user(user_id)
             is_collector = updated_user.is_collector
             logger.info(
@@ -358,16 +271,16 @@ async def confirm_collector_data(
                 f"is_admin={updated_user.is_admin}, is_collector={is_collector}, "
                 f"collector exists={updated_user.collector is not None}"
             )
-            
+
             if not is_collector:
                 logger.warning(
                     f"⚠️ Пользователь {user_id} не определяется как коллектор после создания! "
                     f"collector={updated_user.collector}"
                 )
-            
+
             await callback.bot.send_message(
                 chat_id=callback.message.chat.id,
-                text="🔔 Ваше меню обновлено! Теперь доступна панель коллектора 💰",
+                text="🔔 Ваше меню обновлено! Теперь доступна 💰Сбор панель",
                 reply_markup=await get_main_menu_keyboard(
                     is_admin=updated_user.is_admin,
                     is_collector=is_collector,

@@ -167,7 +167,7 @@ async def confirm_data(callback: CallbackQuery, state: FSMContext, db: PostgresH
             user = await db.get_user(callback.from_user.id)
             await callback.bot.send_message(
                 chat_id=callback.message.chat.id,
-                text="Можете пополнять свой WishList 🤗",
+                text="Можете пополнять свой вишлист 🤗",
                 reply_markup=await get_main_menu_keyboard(
                     is_admin=user.is_admin,
                     is_collector=user.is_collector,
@@ -177,7 +177,7 @@ async def confirm_data(callback: CallbackQuery, state: FSMContext, db: PostgresH
             logger.exception(f"Ошибка при отправке меню после регистрации: {e}")
             await callback.bot.send_message(
                 chat_id=callback.message.chat.id,
-                text="Можете пополнять свой WishList 🤗",
+                text="Можете пополнять свой вишлист 🤗",
                 reply_markup=await get_main_menu_keyboard(),
             )
 

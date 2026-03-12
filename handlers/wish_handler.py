@@ -22,7 +22,9 @@ logger = logging.getLogger(__name__)
 # ============ Добавление желания ============
 async def start_add_wish(message: Message, state: FSMContext):
     """Начало добавления желания"""
-    await message.answer("🎯 Добавляем новый подарок для вас.\n\nОпишите ваше желание:")
+    await message.answer(
+        "❤️ Добавляем новый вариант подарка для вас.\n\nОпишите ваше желание:"
+    )
     await state.update_data(is_add_wish=True)
     await state.set_state(WishStates.waiting_for_wish_text)
 
@@ -39,7 +41,7 @@ async def process_wish_text(message: Message, state: FSMContext):
     else:
         await message.answer(
             "Введите ссылку на подарок ✏️:\n\n"
-            "P.s. Если таковой нет, то нажмите 'Нет URL 🔗'",
+            "P.s. Если таковой нет, то нажмите 'Нет ссылки 🔗'",
             reply_markup=get_url_keyboard(),
         )
         await state.set_state(WishStates.waiting_for_wish_url)
@@ -47,14 +49,14 @@ async def process_wish_text(message: Message, state: FSMContext):
 
 @wishlist_router.callback_query(F.data == "url_no", WishStates.waiting_for_wish_url)
 async def process_url_no(callback: CallbackQuery, state: FSMContext):
-    """Обработка кнопки 'Нет URL 🔗'"""
+    """Обработка кнопки 'Нет ссылки 🔗'"""
     await state.update_data(wish_url=None)
     await handle_wish_confirmation(callback, state)
 
 
 @wishlist_router.message(WishStates.waiting_for_wish_url)
 async def process_url(message: Message, state: FSMContext):
-    """Обработка URL"""
+    """Обработка ссылки"""
     if not await handle_wish_url(message, state):
         return
 
@@ -62,6 +64,7 @@ async def process_url(message: Message, state: FSMContext):
 
 
 # ============ Подтверждение желания ============
+
 
 @wishlist_router.callback_query(F.data == "confirm_yes", WishStates.confirmation)
 async def confirm_wish(callback: CallbackQuery, state: FSMContext, db: PostgresHandler):
@@ -106,6 +109,7 @@ async def confirm_wish(callback: CallbackQuery, state: FSMContext, db: PostgresH
 
 # ============ Редактирование желания ============
 
+
 @wishlist_router.callback_query(F.data == "confirm_no", WishStates.confirmation)
 async def show_wish_edit_menu(callback: CallbackQuery, state: FSMContext):
     """Показать меню редактирования желания"""
@@ -126,6 +130,6 @@ async def edit_wish_text(callback: CallbackQuery, state: FSMContext):
 async def edit_wish_url(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_reply_markup()
     await callback.message.answer(
-        "Введите новый URL подарка 🔗:", reply_markup=get_url_keyboard()
+        "Введите новую ссылку на подарок 🔗:", reply_markup=get_url_keyboard()
     )
     await state.set_state(WishStates.waiting_for_wish_url)

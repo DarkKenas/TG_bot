@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     admin_secret_code: str = Field(alias="ADMIN_SECRET_CODE")
     service_secret_code: str = Field(alias="SERVICE_SECRET_CODE")
 
+    # === Collector ===
+    backup_collector_user_id: int | None = Field(
+        default=None, alias="BACKUP_COLLECTOR_USER_ID"
+    )
+
     # === Scheduler ===
     timezone: str = Field(default="Europe/Moscow")
 
